@@ -22,5 +22,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	conn.Write([]byte("+PONG\r\n"))
+	defer conn.Close()
+
+	var b []byte
+	for {
+		conn.Read(b)
+		conn.Write([]byte("+PONG\r\n"))
+	}
 }
