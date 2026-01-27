@@ -26,7 +26,9 @@ func main() {
 
 	var b []byte
 	for {
-		conn.Read(b)
-		conn.Write([]byte("+PONG\r\n"))
+		_, err := conn.Read(b)
+		if (err != nil) {
+			conn.Write([]byte("+PONG\r\n"))
+		}
 	}
 }
