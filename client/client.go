@@ -9,19 +9,9 @@ import (
 	"strings"
 )
 
-func ScanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	if atEOF && len(data) == 0 {
-		return 0, nil, nil
-	}
-	if i := bytes.Index(data, []byte{'\r', '\n'}); i >= 0 {
-		return i + 2, data[0 : i+2], nil
-	}
-	// If we're at EOF, we have a final, non-terminated line. Return it.
-	if atEOF {
-		return len(data), data, nil
-	}
-	// Request more data.
-	return 0, nil, nil
+func ScanBufferLength(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	// Always return the entire buffer that was read
+	return len(data), data, nil
 }
 
 func StdinWorker(c chan string) {
@@ -60,18 +50,20 @@ func WriteWorker(conn net.Conn, inputChannel chan string) {
 			fmt.Printf("Connection lost: %v\n", err)
 			os.Exit(1)
 		}
+
+		fmt.Fprintf(os.Stdout, "Wrote: %q\n", buf.String())
 	}
 }
 
 func ReadWorker(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
-	scanner.Split(ScanCRLF)
+	scanner.Split(ScanBufferLength)
 	for {
 		if !scanner.Scan() {
 			return
 		}
 		line := scanner.Text()
-		fmt.Fprintf(os.Stdout, "%q\n", line)
+		fmt.Fprintf(os.Stdout, "Read: %q\n", line)
 	}
 }
 

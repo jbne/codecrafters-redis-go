@@ -20,12 +20,15 @@ type (
 	RESP2_CommandHandler func(RESP2_Array, chan string)
 )
 
-// var RESP2_DataType_Map = map[char]
 var (
 	RESP2_SupportedCommands_Map = map[string]RESP2_CommandHandler{
 		"PING": PING,
 		"ECHO": ECHO,
+		"SET":  SET,
+		"GET":  GET,
 	}
+
+	Cache = map[string]string{}
 )
 
 func PING(tokens RESP2_Array, c chan string) {
@@ -35,6 +38,43 @@ func PING(tokens RESP2_Array, c chan string) {
 func ECHO(tokens RESP2_Array, c chan string) {
 	response := strings.Join(tokens[1:], " ")
 	c <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+}
+
+func SET(tokens RESP2_Array, c chan string) {
+	arrSize := len(tokens)
+	switch {
+	case arrSize > 3:
+		args := strings.TrimSpace(strings.Join(tokens[2:], " "))
+		if args[0] == '"' {
+			nextQuoteIndex := strings.Index(args[1:], "\"")
+			if nextQuoteIndex < 0 {
+				Cache[tokens[1]] = tokens[2]
+			} else {
+				Cache[tokens[1]] = args[1 : nextQuoteIndex+1]
+			}
+		} else {
+			Cache[tokens[1]] = tokens[2]
+		}
+		c <- "+OK\r\n"
+	case arrSize == 3:
+		Cache[tokens[1]] = tokens[2]
+		c <- "+OK\r\n"
+	case arrSize == 2:
+		c <- fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1])
+	case arrSize == 1:
+		c <- "-ERR No key given! %s!\r\n"
+	}
+}
+
+func GET(tokens RESP2_Array, c chan string) {
+	if len(tokens) > 1 {
+		response, ok := Cache[tokens[1]]
+		if ok {
+			c <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+		} else {
+			c <- "$-1\r\n"
+		}
+	}
 }
 
 func ProcessArray(scan Scan, handleError ErrorHandler) RESP2_Array {
@@ -97,12 +137,12 @@ func ReadWorker(conn net.Conn, c chan string) {
 	Scan := func() string {
 		scanner.Scan()
 		line := scanner.Text()
-		fmt.Printf("[%s] Read from %s: %q\n", time.Now().UTC().Format("2006-01-02 15:04:05Z"), remoteAddr, line)
 		return line
 	}
 
 	for {
 		command := ProcessArray(Scan, HandleError)
+		fmt.Printf("[%s] Read from %s: %q\n", time.Now().UTC().Format("2006-01-02 15:04:05Z"), remoteAddr, command)
 		if err {
 			return
 		}
