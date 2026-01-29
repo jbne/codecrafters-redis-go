@@ -1,51 +1,168 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"os"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
 )
 
-func worker(conn net.Conn) {
-	fmt.Printf("Client connected! conn: %s\n", conn.RemoteAddr())
-	defer conn.Close()
+type (
+	Scan         func() string
+	ErrorHandler func(string, bool)
+
+	RESP2_Array          []string
+	RESP2_CommandHandler func(RESP2_Array, chan string)
+)
+
+// var RESP2_DataType_Map = map[char]
+var (
+	RESP2_SupportedCommands_Map = map[string]RESP2_CommandHandler{
+		"PING": PING,
+		"ECHO": ECHO,
+	}
+)
+
+func PING(tokens RESP2_Array, c chan string) {
+	c <- "+PONG\r\n"
+}
+
+func ECHO(tokens RESP2_Array, c chan string) {
+	response := strings.Join(tokens[1:], " ")
+	c <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+}
+
+func ProcessArray(scan Scan, handleError ErrorHandler) RESP2_Array {
+	line := scan()
+	if !strings.HasPrefix(line, "*") {
+		handleError("ProcessArray called on non-array!", true)
+		return nil
+	}
+
+	arrSize, err := strconv.Atoi(line[1:])
+	if err != nil {
+		handleError(fmt.Sprintf("Could not extract array size! Error: %v", err), true)
+		return nil
+	}
+
+	ret := make([]string, 0)
+	for range arrSize {
+		line = scan()
+		switch line[0] {
+		case '$':
+			ret = append(ret, scan())
+		}
+	}
+
+	return ret
+}
+
+func ScanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	if i := bytes.Index(data, []byte{'\r', '\n'}); i >= 0 {
+		return i + 2, data[0:i], nil
+	}
+	// If we're at EOF, we have a final, non-terminated line. Return it.
+	if atEOF {
+		return len(data), data, nil
+	}
+	// Request more data.
+	return 0, nil, nil
+}
+
+func ReadWorker(conn net.Conn, c chan string) {
+	remoteAddr := conn.RemoteAddr()
+	scanner := bufio.NewScanner(conn)
+	scanner.Split(ScanCRLF)
+
+	err := false
+	HandleError := func(str string, terminate bool) {
+		_, file, line, _ := runtime.Caller(1)
+		fmt.Printf("%v:%v: %s\n", file, line, str)
+		prefix := "-ERR"
+		if terminate {
+			err = true
+			prefix += "TERM"
+		}
+		c <- fmt.Sprintf("%s %s\r\n", prefix, str)
+	}
+
+	Scan := func() string {
+		scanner.Scan()
+		line := scanner.Text()
+		fmt.Printf("[%s] Read from %s: %q\n", time.Now().UTC().Format("2006-01-02 15:04:05Z"), remoteAddr, line)
+		return line
+	}
 
 	for {
-		buf := make([]byte, 1024)
-		_, err := conn.Read(buf)
-		if err != nil {
-			fmt.Printf("Read err: %v\n", err)
+		command := ProcessArray(Scan, HandleError)
+		if err {
 			return
 		}
 
-		fmt.Printf("%s: %s\n", conn.RemoteAddr(), buf)
-		_, err = conn.Write([]byte("+PONG\r\n"))
-		if err != nil {
-			fmt.Printf("Write err: %v\n", err)
+		respond, ok := RESP2_SupportedCommands_Map[command[0]]
+		if !ok {
+			HandleError(fmt.Sprintf("Unrecognized command '%s'!", command[0]), false)
+			continue
+		}
+
+		respond(command, c)
+	}
+}
+
+func WriteWorker(conn net.Conn, c chan string) {
+	defer conn.Close()
+	remoteAddr := conn.RemoteAddr()
+	writer := bufio.NewWriter(conn)
+	for {
+		str := string(<-c)
+		fmt.Printf("[%s] Writing to %s: %q\n", time.Now().UTC().Format("2006-01-02 15:04:05Z"), remoteAddr, str)
+		_, err := writer.WriteString(str)
+		if strings.HasPrefix(str, "-ERRTERM") {
 			return
 		}
+
+		if err != nil {
+			fmt.Printf("Connection lost: %v\n", err)
+			break
+		}
+
+		writer.Flush()
 	}
 }
 
 func main() {
-	address := "127.0.0.1"
+	network := "tcp"
+	address := "localhost"
 	port := "6379"
 	endpoint := fmt.Sprintf("%s:%s", address, port)
 
 	fmt.Printf("Start listening on %s\n", endpoint)
-	listener, err := net.Listen("tcp", endpoint)
+	listener, err := net.Listen(network, endpoint)
 	if err != nil {
 		fmt.Printf("Failed to bind to %s: %s", endpoint, err)
 		os.Exit(1)
 	}
 
+	defer listener.Close()
 	for {
-		fmt.Println("Waiting for client connection...")
+		fmt.Println("Waiting for client connections...")
 		conn, err := listener.Accept()
 		if err != nil {
 			fmt.Println("Error accepting connection: ", err.Error())
-			os.Exit(1)
+			continue
 		}
-		go worker(conn)
+
+		c := make(chan string)
+		fmt.Printf("Client connected! RemoteAddr: %s\n", conn.RemoteAddr())
+		go ReadWorker(conn, c)
+		go WriteWorker(conn, c)
 	}
 }
