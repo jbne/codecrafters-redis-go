@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,7 +29,8 @@ var (
 		"GET":  GET,
 	}
 
-	Cache = map[string]string{}
+	Cache      = map[string]string{}
+	CacheMutex sync.RWMutex
 )
 
 func PING(tokens RESP2_Array, c chan string) {
@@ -43,26 +45,44 @@ func ECHO(tokens RESP2_Array, c chan string) {
 func SET(tokens RESP2_Array, c chan string) {
 	arrSize := len(tokens)
 	switch {
-	case arrSize > 3:
-		args := strings.TrimSpace(strings.Join(tokens[2:], " "))
-		if args[0] == '"' {
-			nextQuoteIndex := strings.Index(args[1:], "\"")
-			if nextQuoteIndex < 0 {
-				Cache[tokens[1]] = tokens[2]
-			} else {
-				Cache[tokens[1]] = args[1 : nextQuoteIndex+1]
+	case arrSize >= 3:
+		expiryDurationMs := 0
+		err := error(nil)
+		for i := 3; i < arrSize; i++ {
+			if tokens[i] == "PX" {
+				if i+1 >= arrSize {
+					c <- "-ERR No expiration specified!"
+				} else {
+					expiryDurationMs, err = strconv.Atoi(tokens[i+1])
+					if err != nil {
+						c <- fmt.Sprintf("-ERR Could not convert %s to an int for expiry! Err: %s\r\n", tokens[i+1], err)
+						return
+					}
+				}
 			}
-		} else {
-			Cache[tokens[1]] = tokens[2]
 		}
-		c <- "+OK\r\n"
-	case arrSize == 3:
+
+		CacheMutex.Lock()
 		Cache[tokens[1]] = tokens[2]
+		CacheMutex.Unlock()
+
+		if expiryDurationMs > 0 {
+			timer := time.NewTimer(time.Millisecond * time.Duration(expiryDurationMs))
+			go func() {
+				<-timer.C
+
+				fmt.Printf("%s expired!", tokens[1])
+				CacheMutex.Lock()
+				delete(Cache, tokens[1])
+				CacheMutex.Unlock()
+			}()
+		}
+
 		c <- "+OK\r\n"
 	case arrSize == 2:
 		c <- fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1])
 	case arrSize == 1:
-		c <- "-ERR No key given! %s!\r\n"
+		c <- "-ERR No key given!\r\n"
 	}
 }
 
@@ -77,10 +97,10 @@ func GET(tokens RESP2_Array, c chan string) {
 	}
 }
 
-func ProcessArray(scan Scan, handleError ErrorHandler) RESP2_Array {
+func ParseArray(scan Scan, handleError ErrorHandler) RESP2_Array {
 	line := scan()
 	if !strings.HasPrefix(line, "*") {
-		handleError("ProcessArray called on non-array!", true)
+		handleError("ParseArray called on non-array!", true)
 		return nil
 	}
 
@@ -141,7 +161,7 @@ func ReadWorker(conn net.Conn, c chan string) {
 	}
 
 	for {
-		command := ProcessArray(Scan, HandleError)
+		command := ParseArray(Scan, HandleError)
 		fmt.Printf("[%s] Read from %s: %q\n", time.Now().UTC().Format("2006-01-02 15:04:05Z"), remoteAddr, command)
 		if err {
 			return

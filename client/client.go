@@ -25,8 +25,54 @@ func StdinWorker(c chan string) {
 			continue
 		}
 
+		fmt.Printf("Got %q from stdin\n", text)
 		c <- text
 	}
+}
+
+func RESPify(input string) []string {
+	var ret []string
+	var current []rune
+	inQuote := false
+	quoteIdx := -1 // Track where the active quote started
+
+	for i, r := range input {
+		if r == '"' {
+			// Start of a quoted block
+			if !inQuote && (i == 0 || input[i-1] == ' ') {
+				inQuote = true
+				quoteIdx = i
+				continue
+			}
+			// End of a quoted block
+			if inQuote && (i == len(input)-1 || input[i+1] == ' ') {
+				inQuote = false
+				quoteIdx = -1
+				continue
+			}
+			// Literal quote inside a word
+			current = append(current, r)
+		} else if r == ' ' && !inQuote {
+			if len(current) > 0 {
+				ret = append(ret, string(current))
+				current = nil
+			}
+		} else {
+			current = append(current, r)
+		}
+	}
+
+	// BUG FIX: If we finished but a quote was never closed
+	if inQuote {
+		// Treat the start-quote as a literal and re-append the rest
+		// A simple way is to take the slice from the quoteIdx and split it by fields
+		remainder := strings.Fields(input[quoteIdx:])
+		ret = append(ret, remainder...)
+	} else if len(current) > 0 {
+		ret = append(ret, string(current))
+	}
+
+	return ret
 }
 
 func WriteWorker(conn net.Conn, inputChannel chan string) {
@@ -38,7 +84,9 @@ func WriteWorker(conn net.Conn, inputChannel chan string) {
 
 		// 1. Serialize directly into the local buffer
 		buf.Reset()
-		tokens := strings.Fields(input)
+
+		//tokens := strings.Fields()
+		tokens := RESPify(input)
 		fmt.Fprintf(&buf, "*%d\r\n", len(tokens))
 		for _, token := range tokens {
 			fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(token), token)
