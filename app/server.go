@@ -3,7 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"os"
 	"runtime"
@@ -11,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lmittmann/tint"
 )
 
 type (
@@ -22,23 +27,42 @@ type (
 )
 
 var (
-	RESP2_SupportedCommands_Map = map[string]RESP2_CommandHandler{
+	RESP2_Commands_Map = map[string]RESP2_CommandHandler{
 		"PING": PING,
 		"ECHO": ECHO,
 		"SET":  SET,
 		"GET":  GET,
 	}
 
-	Cache      = map[string]string{}
-	CacheMutex sync.RWMutex
+	Cache       = map[string]string{}
+	CacheMutex  sync.RWMutex
+	Timers      = map[string]*time.Timer{}
+	TimersMutex sync.Mutex
 )
+
+func RespifyArray(tokens []string) string {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "*%d\r\n", len(tokens))
+	for _, token := range tokens {
+		fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(token), token)
+	}
+	return buf.String()
+}
 
 func PING(tokens RESP2_Array, c chan string) {
 	c <- "+PONG\r\n"
 }
 
 func ECHO(tokens RESP2_Array, c chan string) {
-	response := strings.Join(tokens[1:], " ")
+	if len(tokens) < 2 {
+		c <- "-ERR No message provided to ECHO!\r\n"
+		return
+	}
+	if len(tokens) > 2 {
+		c <- "-ERR ECHO accepts exactly 1 argument!\r\n"
+		return
+	}
+	response := tokens[1]
 	c <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
 }
 
@@ -46,12 +70,26 @@ func SET(tokens RESP2_Array, c chan string) {
 	arrSize := len(tokens)
 	switch {
 	case arrSize >= 3:
+		key := tokens[1]
+		value := tokens[2]
+
+		// Validate key and value are not empty
+		if key == "" {
+			c <- "-ERR Key cannot be empty!\r\n"
+			return
+		}
+		if value == "" {
+			c <- "-ERR Value cannot be empty!\r\n"
+			return
+		}
+
 		expiryDurationMs := 0
 		err := error(nil)
 		for i := 3; i < arrSize; i++ {
 			if tokens[i] == "PX" {
 				if i+1 >= arrSize {
-					c <- "-ERR No expiration specified!"
+					c <- "-ERR No expiration specified!\r\n"
+					return
 				} else {
 					expiryDurationMs, err = strconv.Atoi(tokens[i+1])
 					if err != nil {
@@ -62,19 +100,37 @@ func SET(tokens RESP2_Array, c chan string) {
 			}
 		}
 
+		// Stop any existing timer for this key
+		TimersMutex.Lock()
+		if timer, exists := Timers[key]; exists {
+			slog.Debug("Cancelling existing timer", "key", key)
+			timer.Stop()
+			delete(Timers, key)
+		}
+		TimersMutex.Unlock()
+
 		CacheMutex.Lock()
-		Cache[tokens[1]] = tokens[2]
+		Cache[key] = value
 		CacheMutex.Unlock()
+		slog.Debug("SET executed", "key", key, "value", value, "expiry_ms", expiryDurationMs)
 
 		if expiryDurationMs > 0 {
 			timer := time.NewTimer(time.Millisecond * time.Duration(expiryDurationMs))
+			TimersMutex.Lock()
+			Timers[key] = timer
+			TimersMutex.Unlock()
+
 			go func() {
 				<-timer.C
 
-				fmt.Printf("%s expired!", tokens[1])
 				CacheMutex.Lock()
-				delete(Cache, tokens[1])
+				delete(Cache, key)
 				CacheMutex.Unlock()
+
+				TimersMutex.Lock()
+				delete(Timers, key)
+				TimersMutex.Unlock()
+				slog.Debug("Key expired", "key", key)
 			}()
 		}
 
@@ -87,18 +143,32 @@ func SET(tokens RESP2_Array, c chan string) {
 }
 
 func GET(tokens RESP2_Array, c chan string) {
-	if len(tokens) > 1 {
-		response, ok := Cache[tokens[1]]
-		if ok {
-			c <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
-		} else {
-			c <- "$-1\r\n"
-		}
+	if len(tokens) < 2 {
+		c <- "-ERR No key provided to GET!\r\n"
+		return
+	}
+	key := tokens[1]
+	CacheMutex.RLock()
+	response, ok := Cache[key]
+	CacheMutex.RUnlock()
+
+	if ok {
+		slog.Debug("GET cache hit", "key", key)
+		c <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+	} else {
+		slog.Debug("GET cache miss", "key", key)
+		c <- "$-1\r\n"
 	}
 }
 
-func ParseArray(scan Scan, handleError ErrorHandler) RESP2_Array {
-	line := scan()
+func ParseArray(scan <-chan string, handleError ErrorHandler) RESP2_Array {
+	line, ok := <-scan
+	if !ok {
+		return nil // Channel closed - client disconnected
+	}
+	if line == "" {
+		return nil // EOF or empty line - return silently
+	}
 	if !strings.HasPrefix(line, "*") {
 		handleError("ParseArray called on non-array!", true)
 		return nil
@@ -110,13 +180,50 @@ func ParseArray(scan Scan, handleError ErrorHandler) RESP2_Array {
 		return nil
 	}
 
-	ret := make([]string, 0)
+	if arrSize < 0 {
+		handleError("Array size cannot be negative", true)
+		return nil
+	}
+
+	ret := make([]string, 0, arrSize)
 	for range arrSize {
-		line = scan()
-		switch line[0] {
-		case '$':
-			ret = append(ret, scan())
+		line, ok = <-scan
+		if !ok {
+			handleError("Channel closed while parsing array element", true)
+			return nil
 		}
+		if line == "" {
+			handleError("Unexpected empty line while parsing array element", true)
+			return nil
+		}
+		if line[0] != '$' {
+			handleError(fmt.Sprintf("Expected bulk string marker '$', got %q", line), true)
+			return nil
+		}
+
+		// Parse the bulk string length
+		bulkLen, err := strconv.Atoi(line[1:])
+		if err != nil {
+			handleError(fmt.Sprintf("Invalid bulk string length: %v", err), true)
+			return nil
+		}
+
+		if bulkLen < 0 {
+			handleError("Bulk string length cannot be negative", true)
+			return nil
+		}
+
+		// Read the actual bulk string data
+		data, ok := <-scan
+		if !ok {
+			handleError("Channel closed while reading bulk string data", true)
+			return nil
+		}
+		if len(data) != bulkLen {
+			handleError(fmt.Sprintf("Bulk string length mismatch: expected %d bytes, got %d", bulkLen, len(data)), true)
+			return nil
+		}
+		ret = append(ret, data)
 	}
 
 	return ret
@@ -137,15 +244,15 @@ func ScanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	return 0, nil, nil
 }
 
-func ReadWorker(conn net.Conn, c chan string) {
+func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
+	defer close(c)
 	remoteAddr := conn.RemoteAddr()
-	scanner := bufio.NewScanner(conn)
-	scanner.Split(ScanCRLF)
+	slog.Debug("ReadWorker started", "client", remoteAddr)
 
 	err := false
 	HandleError := func(str string, terminate bool) {
 		_, file, line, _ := runtime.Caller(1)
-		fmt.Printf("%v:%v: %s\n", file, line, str)
+		slog.Error("Protocol error", "file", file, "line", line, "error", str)
 		prefix := "-ERR"
 		if terminate {
 			err = true
@@ -154,20 +261,32 @@ func ReadWorker(conn net.Conn, c chan string) {
 		c <- fmt.Sprintf("%s %s\r\n", prefix, str)
 	}
 
-	Scan := func() string {
-		scanner.Scan()
-		line := scanner.Text()
-		return line
-	}
+	in := CreateScannerChannel(ctx, conn, ScanCRLF)
 
 	for {
-		command := ParseArray(Scan, HandleError)
-		fmt.Printf("[%s] Read from %s: %q\n", time.Now().UTC().Format("2006-01-02 15:04:05Z"), remoteAddr, command)
+		select {
+		case <-ctx.Done():
+			slog.Debug("ReadWorker context cancelled", "client", remoteAddr)
+			return // Exit when server is shutting down
+		default:
+		}
+
+		command := ParseArray(in, HandleError)
+
 		if err {
+			slog.Debug("ReadWorker exiting due to protocol error", "client", remoteAddr)
 			return
 		}
 
-		respond, ok := RESP2_SupportedCommands_Map[command[0]]
+		if len(command) == 0 {
+			slog.Debug("ReadWorker exiting - client disconnected", "client", remoteAddr)
+			return // EOF - client disconnected cleanly
+		}
+
+		respStr := RespifyArray(command)
+		slog.Debug("Command received", "client", remoteAddr, "request", respStr)
+
+		respond, ok := RESP2_Commands_Map[command[0]]
 		if !ok {
 			HandleError(fmt.Sprintf("Unrecognized command '%s'!", command[0]), false)
 			continue
@@ -180,17 +299,24 @@ func ReadWorker(conn net.Conn, c chan string) {
 func WriteWorker(conn net.Conn, c chan string) {
 	defer conn.Close()
 	remoteAddr := conn.RemoteAddr()
+	slog.Debug("WriteWorker started", "client", remoteAddr)
 	writer := bufio.NewWriter(conn)
 	for {
-		str := string(<-c)
-		fmt.Printf("[%s] Writing to %s: %q\n", time.Now().UTC().Format("2006-01-02 15:04:05Z"), remoteAddr, str)
+		str, ok := <-c
+		if !ok {
+			slog.Debug("WriteWorker exiting - response channel closed", "client", remoteAddr)
+			return // Channel closed by ReadWorker
+		}
+
+		slog.Debug("Response sent", "client", remoteAddr, "response", str)
 		_, err := writer.WriteString(str)
 		if strings.HasPrefix(str, "-ERRTERM") {
+			slog.Debug("WriteWorker exiting - terminating error sent", "client", remoteAddr)
 			return
 		}
 
 		if err != nil {
-			fmt.Printf("Connection lost: %v\n", err)
+			slog.Error("Connection lost", "client", remoteAddr, "error", err)
 			break
 		}
 
@@ -198,31 +324,131 @@ func WriteWorker(conn net.Conn, c chan string) {
 	}
 }
 
-func main() {
+func CreateScannerChannel(ctx context.Context, reader io.Reader, splitFunc bufio.SplitFunc) <-chan string {
+	in := make(chan string)
+	go func() {
+		scanner := bufio.NewScanner(reader)
+		scanner.Split(splitFunc)
+		defer close(in)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				slog.Debug("Scanner cancelled by context")
+				return
+			case in <- scanner.Text():
+			}
+		}
+		// Check for errors after Scan() returns false
+		if err := scanner.Err(); err != nil {
+			slog.Error("Scanner error", "error", err)
+		}
+
+		slog.Debug("Scanner channel closed")
+	}()
+
+	return in
+}
+
+func ClientConnectionWorker(ctx context.Context) {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+
 	network := "tcp"
 	address := "localhost"
 	port := "6379"
 	endpoint := fmt.Sprintf("%s:%s", address, port)
 
-	fmt.Printf("Start listening on %s\n", endpoint)
+	slog.Info("Attempting to start listening", "endpoint", endpoint)
 	listener, err := net.Listen(network, endpoint)
 	if err != nil {
-		fmt.Printf("Failed to bind to %s: %s", endpoint, err)
-		os.Exit(1)
+		slog.Error("Failed to bind", "endpoint", endpoint, "error", err)
+		return
 	}
 
-	defer listener.Close()
-	for {
-		fmt.Println("Waiting for client connections...")
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
-			continue
+	in := make(chan net.Conn)
+	wg.Go(func() {
+		slog.Info("Listening for client connections", "endpoint", endpoint)
+		defer listener.Close()
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				slog.Error("Error accepting connection", "error", err)
+				return
+			}
+
+			select {
+			case in <- conn:
+			case <-ctx.Done():
+				conn.Close()
+				return
+			}
 		}
+	})
 
-		c := make(chan string)
-		fmt.Printf("Client connected! RemoteAddr: %s\n", conn.RemoteAddr())
-		go ReadWorker(conn, c)
-		go WriteWorker(conn, c)
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("Server shutting down")
+			listener.Close() // Unblock the accept goroutine
+			return
+		case conn := <-in:
+			c := make(chan string)
+			remoteAddr := conn.RemoteAddr()
+			slog.Info("Client connected", "client", remoteAddr)
+			wg.Go(func() {
+				ReadWorker(ctx, conn, c)
+				slog.Debug("ReadWorker done", "client", remoteAddr)
+			})
+			wg.Go(func() {
+				WriteWorker(conn, c)
+				slog.Debug("WriteWorker done", "client", remoteAddr)
+			})
+		}
 	}
+}
+
+func StdinWorker(ctx context.Context) {
+	in := CreateScannerChannel(ctx, os.Stdin, bufio.ScanLines)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case text := <-in:
+			slog.Debug("stdin input", "input", text)
+			input := strings.TrimSpace(text)
+			if input == "" {
+				continue
+			}
+
+			if input == "q" {
+				return
+			}
+		}
+	}
+}
+
+func main() {
+	// Configure colored logging with tint
+	handler := tint.NewHandler(os.Stderr, &tint.Options{
+		Level:      slog.LevelDebug,
+		TimeFormat: time.StampMilli,
+		NoColor:    false,
+	})
+	slog.SetDefault(slog.New(handler))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
+		StdinWorker(ctx)
+		slog.Info("StdinWorker done")
+		cancel()
+	})
+	wg.Go(func() {
+		ClientConnectionWorker(ctx)
+		slog.Info("ClientConnectionWorker done")
+	})
+
+	wg.Wait()
+	slog.Info("Clean exit")
 }

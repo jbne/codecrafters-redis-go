@@ -1,0 +1,21 @@
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+linters:
+  enable:
+    - unused # Find unused code
+    - deadcode # Find unreachable code
+    - errcheck # Find unchecked errors
+    - gosimple # Simplify code
+    - govet # Go vet
+    - ineffassign # Find ineffectual assignments
+    - staticcheck # Static analysis
+    - typecheck # Type check
+    - unconvert # Remove unnecessary type conversions
+    - unparam # Find unused function parameters
+    - varcheck # Find unused variables
+
+issues:
+  exclude-use-default: true
