@@ -1,32 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"log/slog"
 	"net"
-	"os"
 	"strings"
 	"sync"
 
-	"github.com/lmittmann/tint"
+	"github.com/codecrafters-io/redis-starter-go/logger"
+	"github.com/codecrafters-io/redis-starter-go/utils"
 )
-
-func ScanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	if atEOF && len(data) == 0 {
-		return 0, nil, nil
-	}
-	if i := bytes.Index(data, []byte{'\r', '\n'}); i >= 0 {
-		return i + 2, data[0:i], nil
-	}
-	if atEOF {
-		return len(data), data, nil
-	}
-	return 0, nil, nil
-}
 
 func RESPify(input string) []string {
 	var ret []string
@@ -87,62 +71,17 @@ func RESPify(input string) []string {
 	return ret
 }
 
-func CreateScannerChannel(reader io.Reader, splitFunc bufio.SplitFunc) <-chan string {
-	in := make(chan string)
-	go func() {
-		scanner := bufio.NewScanner(reader)
-		scanner.Split(splitFunc)
-		for scanner.Scan() {
-			in <- scanner.Text()
-		}
-		// Check for errors after Scan() returns false
-		if err := scanner.Err(); err != nil {
-			slog.Error("Scanner error", "error", err)
-		}
-
-		slog.Debug("Scanner channel closed")
-		close(in)
-	}()
-
-	return in
-}
-
-func StdinWorker(ctx context.Context, out chan<- string) {
-	in := CreateScannerChannel(os.Stdin, bufio.ScanLines)
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Debug("StdinWorker context cancelled")
-			return
-		case text := <-in:
-			input := strings.TrimSpace(text)
-			if input == "" {
-				continue
-			}
-
-			switch input {
-			case "q":
-				slog.Info("User quit")
-				return
-			default:
-				slog.Debug("Command parsed", "input", input)
-				out <- text
-			}
-		}
-	}
-}
-
 func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 	var buf bytes.Buffer
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Debug("WriteWorker context cancelled")
+			logger.Debug("WriteWorker context cancelled")
 			return
 		case input := <-in:
 			tokens := RESPify(input)
 			if len(tokens) == 0 {
-				slog.Warn("No tokens parsed from input", "input", input)
+				logger.Warn("No tokens parsed from input", "input", input)
 				continue
 			}
 
@@ -154,21 +93,21 @@ func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 
 			_, err := conn.Write(buf.Bytes())
 			if err != nil {
-				slog.Error("Failed to write command", "error", err)
+				logger.Error("Failed to write command", "error", err)
 				return
 			}
 
-			slog.Debug("Command sent", "request", buf.String())
+			logger.Debug("Command sent", "request", buf.String())
 		}
 	}
 }
 
 func ReadWorker(ctx context.Context, conn net.Conn) {
-	in := CreateScannerChannel(conn, ScanCRLF)
+	in := utils.CreateScannerChannel(ctx, conn, utils.ScanCRLF)
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Debug("ReadWorker context cancelled")
+			logger.Debug("ReadWorker context cancelled")
 			return
 		case line := <-in:
 			if len(line) == 0 {
@@ -176,34 +115,26 @@ func ReadWorker(ctx context.Context, conn net.Conn) {
 			}
 
 			// Log the raw RESP response line
-			slog.Debug("Response received", "response", line)
+			logger.Debug("Response received", "response", line)
 		}
 	}
 }
 
 func main() {
-	// Configure colored logging with tint
-	handler := tint.NewHandler(os.Stderr, &tint.Options{
-		Level:      slog.LevelDebug,
-		TimeFormat: "2006-01-02 15:04:05.000",
-		NoColor:    false,
-	})
-	slog.SetDefault(slog.New(handler))
-
 	network := "tcp4"
 	address := "localhost"
 	port := "6379"
 	endpoint := net.JoinHostPort(address, port)
 
-	slog.Info("Connecting to server", "endpoint", endpoint)
+	logger.Info("Connecting to server", "endpoint", endpoint)
 	conn, err := net.Dial(network, endpoint)
 
 	if err != nil {
-		slog.Error("Failed to connect", "endpoint", endpoint, "error", err)
+		logger.Error("Failed to connect", "endpoint", endpoint, "error", err)
 		return
 	}
 
-	slog.Info("Connected to server", "endpoint", endpoint)
+	logger.Info("Connected to server", "endpoint", endpoint)
 	defer conn.Close()
 
 	commandChannel := make(chan string)
@@ -212,19 +143,19 @@ func main() {
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
-		StdinWorker(ctx, commandChannel)
-		slog.Debug("StdinWorker done")
+		utils.StdinWorker(ctx, commandChannel)
+		logger.Debug("StdinWorker done")
 		cancel()
 	})
 	wg.Go(func() {
 		WriteWorker(ctx, conn, commandChannel)
-		slog.Debug("WriteWorker done")
+		logger.Debug("WriteWorker done")
 	})
 	wg.Go(func() {
 		ReadWorker(ctx, conn)
-		slog.Debug("ReadWorker done")
+		logger.Debug("ReadWorker done")
 	})
 
 	wg.Wait()
-	slog.Info("Client closed")
+	logger.Info("Client closed")
 }

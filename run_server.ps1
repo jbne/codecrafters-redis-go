@@ -1,3 +1,3 @@
-go fmt ./app
+go fmt ./server
 go fmt ./client
-go run ./app
+go run ./server
