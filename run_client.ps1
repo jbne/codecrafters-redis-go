@@ -1,3 +1,3 @@
-go fmt ./server
-go fmt ./client
-go run ./client
+go fmt $PSScriptRoot/server
+go fmt $PSScriptRoot/client
+go run $PSScriptRoot/client
