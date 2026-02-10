@@ -11,7 +11,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/lmittmann/tint"
 )
@@ -141,14 +140,13 @@ func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 			slog.Debug("WriteWorker context cancelled")
 			return
 		case input := <-in:
-			buf.Reset()
-
 			tokens := RESPify(input)
 			if len(tokens) == 0 {
 				slog.Warn("No tokens parsed from input", "input", input)
 				continue
 			}
 
+			buf.Reset()
 			fmt.Fprintf(&buf, "*%d\r\n", len(tokens))
 			for _, token := range tokens {
 				fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(token), token)
@@ -187,7 +185,7 @@ func main() {
 	// Configure colored logging with tint
 	handler := tint.NewHandler(os.Stderr, &tint.Options{
 		Level:      slog.LevelDebug,
-		TimeFormat: time.DateTime,
+		TimeFormat: "2006-01-02 15:04:05.000",
 		NoColor:    false,
 	})
 	slog.SetDefault(slog.New(handler))
@@ -195,7 +193,7 @@ func main() {
 	network := "tcp4"
 	address := "localhost"
 	port := "6379"
-	endpoint := fmt.Sprintf("%s:%s", address, port)
+	endpoint := net.JoinHostPort(address, port)
 
 	slog.Info("Connecting to server", "endpoint", endpoint)
 	conn, err := net.Dial(network, endpoint)

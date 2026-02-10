@@ -431,7 +431,7 @@ func main() {
 	// Configure colored logging with tint
 	handler := tint.NewHandler(os.Stderr, &tint.Options{
 		Level:      slog.LevelDebug,
-		TimeFormat: time.StampMilli,
+		TimeFormat: "2006-01-02 15:04:05.000",
 		NoColor:    false,
 	})
 	slog.SetDefault(slog.New(handler))
