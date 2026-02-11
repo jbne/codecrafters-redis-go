@@ -33,6 +33,7 @@ var (
 		"GET":   {Execute: GET},
 		"RPUSH": {Execute: RPUSH},
 		"LRANGE": {Execute: LRANGE},
+		"LPUSH": {Execute: LPUSH},
 	}
 
 	cache       = map[string]string{}
@@ -42,6 +43,19 @@ var (
 
 	lists = map[string][]string{}
 )
+
+func LPUSH(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	if len(params.Params) < 3 {
+		return "-ERR LPUSH requires at least 2 arguments (list name and value)!\r\n"
+	}
+
+	listName := params.Params[1]
+	for _, v := range params.Params[2:] {
+		lists[listName] = append([]string{v}, lists[listName]...)
+	}
+	
+	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
+}
 
 func RPUSH(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 	if len(params.Params) < 3 {
