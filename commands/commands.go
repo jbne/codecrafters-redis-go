@@ -71,10 +71,6 @@ func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 		return fmt.Sprintf("-ERR Could not convert %s to an int for start index! Err: %s\r\n", params.Params[2], err)
 	}
 
-	if startIndex >= len(lists[listName]) {
-		return "*0\r\n"
-	}
-
 	stopIndex, err := strconv.Atoi(params.Params[3])
 	if err != nil {
 		return fmt.Sprintf("-ERR Could not convert %s to an int for end index! Err: %s\r\n", params.Params[3], err)
@@ -88,12 +84,16 @@ func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 		stopIndex = len(lists[listName]) + stopIndex
 	}
 
+	if startIndex >= len(lists[listName]) {
+		return "*0\r\n"
+	}
+
 	if startIndex > stopIndex {
 		return "*0\r\n"
 	}
 
 	stopIndex = min(len(lists[listName]), stopIndex + 1) // +1 because Redis LRANGE is inclusive, but Go slices are exclusive on the end index
-	return lib.RespifyArray(lists[listName][startIndex:stopIndex])	
+	return lib.RespifyArray(lists[listName][startIndex:stopIndex])
 }
 
 func PING(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
