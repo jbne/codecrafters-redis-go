@@ -17,17 +17,20 @@ type (
 		Ctx    context.Context
 		Params RESP2_Array
 	}
-	RESP2_CommandHandlerReturn string
+	RESP2_CommandHandlerReturn = string
 	RESP2_CommandHandlerSignature func(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn
+	RESP2_CommandsMapEntry struct {
+		Execute RESP2_CommandHandlerSignature
+	}
 )
 
 var (
-	RESP2_Commands_Map = map[string]RESP2_CommandHandlerSignature{
-		"PING":  PING,
-		"ECHO":  ECHO,
-		"SET":   SET,
-		"GET":   GET,
-		"RPUSH": RPUSH,
+	RESP2_Commands_Map = map[string]RESP2_CommandsMapEntry{
+		"PING":  {Execute: PING},
+		"ECHO":  {Execute: ECHO},
+		"SET":   {Execute: SET},
+		"GET":   {Execute: GET},
+		"RPUSH": {Execute: RPUSH},
 	}
 
 	cache       = map[string]string{}
@@ -39,9 +42,11 @@ var (
 
 func RPUSH(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 	listName := params.Params[1]
-	value := params.Params[2]
-	lists[listName] = append(lists[listName], value)
-	return RESP2_CommandHandlerReturn(fmt.Sprintf(":%d\r\n", len(lists[listName])))
+	for _, v := range params.Params[2:] {
+		lists[listName] = append(lists[listName], v)
+	}
+	
+	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
 }
 
 func PING(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
@@ -57,7 +62,7 @@ func ECHO(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 		return "-ERR ECHO accepts exactly 1 argument!\r\n"
 	}
 	response := tokens[1]
-	return RESP2_CommandHandlerReturn(fmt.Sprintf("$%d\r\n%s\r\n", len(response), response))
+	return fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
 }
 
 func SET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
@@ -86,7 +91,7 @@ func SET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 				} else {
 					expiryDurationMs, err = strconv.Atoi(tokens[i+1])
 					if err != nil {
-						return RESP2_CommandHandlerReturn(fmt.Sprintf("-ERR Could not convert %s to an int for expiry! Err: %s\r\n", tokens[i+1], err))
+						return fmt.Sprintf("-ERR Could not convert %s to an int for expiry! Err: %s\r\n", tokens[i+1], err)
 					}
 				}
 			}
@@ -128,7 +133,7 @@ func SET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 
 		return "+OK\r\n"
 	case arrSize == 2:
-		return RESP2_CommandHandlerReturn(fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1]))
+		return fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1])
 	case arrSize == 1:
 		return "-ERR No key given!\r\n"
 	default:
@@ -149,7 +154,7 @@ func GET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 
 	if ok {
 		logger.DebugContext(ctx, "GET cache hit", "key", key)
-		return RESP2_CommandHandlerReturn(fmt.Sprintf("$%d\r\n%s\r\n", len(response), response))
+		return fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
 	} else {
 		logger.DebugContext(ctx, "GET cache miss", "key", key)
 		return "$-1\r\n"

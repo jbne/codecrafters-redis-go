@@ -140,13 +140,13 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 		respStr := RespifyArray(commandArray)
 		logger.DebugContext(ctx, "Command received", "client", remoteAddr, "request", respStr)
 
-		execCommand, ok := commands.RESP2_Commands_Map[commandArray[0]]
+		entry, ok := commands.RESP2_Commands_Map[commandArray[0]]
 		if !ok {
 			HandleError(fmt.Sprintf("Unrecognized command '%s'!", commandArray[0]), false)
 			continue
 		}
 
-		response := execCommand(commands.RESP2_CommandHandlerParams{
+		response := entry.Execute(commands.RESP2_CommandHandlerParams{
 			Ctx:    ctx,
 			Params: commandArray,
 		})
