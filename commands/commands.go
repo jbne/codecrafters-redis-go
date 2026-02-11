@@ -84,7 +84,7 @@ func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 		return "*0\r\n"
 	}
 
-	stopIndex = min(len(lists[listName]), stopIndex)
+	stopIndex = min(len(lists[listName]), stopIndex + 1) // +1 because Redis LRANGE is inclusive, but Go slices are exclusive on the end index
 	return RespifyArray(lists[listName][startIndex:stopIndex])	
 }
 
