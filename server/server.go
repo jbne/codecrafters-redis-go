@@ -54,7 +54,7 @@ func ParseArray(scan <-chan string, handleError ErrorHandler) commands.RESP2_Arr
 		return nil
 	}
 
-	ret := make([]string, 0, arrSize)
+	ret := make(commands.RESP2_Array, 0, arrSize)
 	for range arrSize {
 		line, ok = <-scan
 		if !ok {

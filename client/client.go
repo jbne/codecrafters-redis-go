@@ -12,7 +12,7 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/logger"
 )
 
-func RESPify(input string) []string {
+func RespifyString(input string) []string {
 	var ret []string
 	var current []rune
 	inQuote := false
@@ -79,7 +79,7 @@ func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 			logger.DebugContext(ctx, "WriteWorker context cancelled")
 			return
 		case input := <-in:
-			tokens := RESPify(input)
+			tokens := RespifyString(input)
 			if len(tokens) == 0 {
 				logger.WarnContext(ctx, "No tokens parsed from input", "input", input)
 				continue

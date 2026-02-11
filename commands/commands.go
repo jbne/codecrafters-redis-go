@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 type (
-	RESP2_Array          []string
+	RESP2_Array []string
 
 	RESP2_CommandHandlerParams struct {
 		Ctx    context.Context
@@ -31,22 +32,67 @@ var (
 		"SET":   {Execute: SET},
 		"GET":   {Execute: GET},
 		"RPUSH": {Execute: RPUSH},
+		"LRANGE": {Execute: LRANGE},
 	}
 
 	cache       = map[string]string{}
 	cacheMutex  sync.RWMutex
 	timers      = map[string]*time.Timer{}
 	timersMutex sync.Mutex
+
 	lists = map[string][]string{}
 )
 
 func RPUSH(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	if len(params.Params) < 3 {
+		return "-ERR RPUSH requires at least 2 arguments (list name and value)!\r\n"
+	}
+
 	listName := params.Params[1]
 	for _, v := range params.Params[2:] {
 		lists[listName] = append(lists[listName], v)
 	}
 	
 	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
+}
+
+func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	if len(params.Params) < 4 {
+		return "-ERR LRANGE requires at least 3 arguments (list name, start index, end index)!\r\n"
+	}
+
+	listName := params.Params[1]
+	if _, exists := lists[listName]; !exists {
+		return "*0\r\n"
+	}
+
+	startIndex, err := strconv.Atoi(params.Params[2])
+	if err != nil {
+		return fmt.Sprintf("-ERR Could not convert %s to an int for start index! Err: %s\r\n", params.Params[2], err)
+	}
+
+	if startIndex >= len(lists[listName]) {
+		return "*0\r\n"
+	}
+
+	stopIndex, err := strconv.Atoi(params.Params[3])
+	if err != nil {
+		return fmt.Sprintf("-ERR Could not convert %s to an int for end index! Err: %s\r\n", params.Params[3], err)
+	}
+
+	if startIndex > stopIndex {
+		return "*0\r\n"
+	}
+
+	stopIndex = min(len(lists[listName]), stopIndex)
+	return RespifyArray(lists[listName][startIndex:stopIndex])	
+}
+
+func RespifyArray(s []string) RESP2_CommandHandlerReturn {
+	for i, str := range s {
+		s[i] = fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
+	}
+	return fmt.Sprintf("*%d\r\n%s", len(s), strings.Join(s, ""))
 }
 
 func PING(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
