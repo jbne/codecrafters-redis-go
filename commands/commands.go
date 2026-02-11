@@ -71,21 +71,21 @@ func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 		return fmt.Sprintf("-ERR Could not convert %s to an int for start index! Err: %s\r\n", params.Params[2], err)
 	}
 
+	if startIndex >= len(lists[listName]) {
+		return "*0\r\n"
+	}
+
 	stopIndex, err := strconv.Atoi(params.Params[3])
 	if err != nil {
 		return fmt.Sprintf("-ERR Could not convert %s to an int for end index! Err: %s\r\n", params.Params[3], err)
 	}
 
 	if startIndex < 0 {
-		startIndex = len(lists[listName]) + startIndex
+		startIndex = max(len(lists[listName]) + startIndex, 0) // Negative indices count from the end of the list, but we also need to ensure we don't go below 0
 	}
 
 	if stopIndex < 0 {
 		stopIndex = len(lists[listName]) + stopIndex
-	}
-
-	if startIndex >= len(lists[listName]) {
-		return "*0\r\n"
 	}
 
 	if startIndex > stopIndex {
