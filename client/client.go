@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/codecrafters-io/redis-starter-go/lib"
 	"github.com/codecrafters-io/redis-starter-go/logger"
-	"github.com/codecrafters-io/redis-starter-go/utils"
 )
 
 func RESPify(input string) []string {
@@ -76,12 +76,12 @@ func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Debug("WriteWorker context cancelled")
+			logger.DebugContext(ctx, "WriteWorker context cancelled")
 			return
 		case input := <-in:
 			tokens := RESPify(input)
 			if len(tokens) == 0 {
-				logger.Warn("No tokens parsed from input", "input", input)
+				logger.WarnContext(ctx, "No tokens parsed from input", "input", input)
 				continue
 			}
 
@@ -93,21 +93,20 @@ func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 
 			_, err := conn.Write(buf.Bytes())
 			if err != nil {
-				logger.Error("Failed to write command", "error", err)
+				logger.ErrorContext(ctx, "Failed to write command", "error", err)
 				return
 			}
 
-			logger.Debug("Command sent", "request", buf.String())
+			logger.DebugContext(ctx, "Command sent", "request", buf.String())
 		}
 	}
 }
 
-func ReadWorker(ctx context.Context, conn net.Conn) {
-	in := utils.CreateScannerChannel(ctx, conn, utils.ScanCRLF)
+func ReadWorker(ctx context.Context, in <-chan string) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Debug("ReadWorker context cancelled")
+			logger.DebugContext(ctx, "ReadWorker context cancelled")
 			return
 		case line := <-in:
 			if len(line) == 0 {
@@ -115,47 +114,50 @@ func ReadWorker(ctx context.Context, conn net.Conn) {
 			}
 
 			// Log the raw RESP response line
-			logger.Debug("Response received", "response", line)
+			logger.DebugContext(ctx, "Response received", "response", line)
 		}
 	}
 }
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	network := "tcp4"
 	address := "localhost"
 	port := "6379"
 	endpoint := net.JoinHostPort(address, port)
 
-	logger.Info("Connecting to server", "endpoint", endpoint)
+	logger.InfoContext(ctx, "Connecting to server", "endpoint", endpoint)
 	conn, err := net.Dial(network, endpoint)
 
 	if err != nil {
-		logger.Error("Failed to connect", "endpoint", endpoint, "error", err)
+		logger.ErrorContext(ctx, "Failed to connect", "endpoint", endpoint, "error", err)
 		return
 	}
 
-	logger.Info("Connected to server", "endpoint", endpoint)
+	logger.InfoContext(ctx, "Connected to server", "endpoint", endpoint)
 	defer conn.Close()
 
 	commandChannel := make(chan string)
-
-	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
-		utils.StdinWorker(ctx, commandChannel)
-		logger.Debug("StdinWorker done")
+		lib.StdinWorker(ctx, commandChannel)
+		logger.DebugContext(ctx, "StdinWorker done")
 		cancel()
 	})
 	wg.Go(func() {
 		WriteWorker(ctx, conn, commandChannel)
-		logger.Debug("WriteWorker done")
+		logger.DebugContext(ctx, "WriteWorker done")
+		cancel()
 	})
 	wg.Go(func() {
-		ReadWorker(ctx, conn)
-		logger.Debug("ReadWorker done")
+		in, ctx := lib.CreateScannerChannel(ctx, conn, lib.ScanCRLF)
+		ReadWorker(ctx, in)
+		logger.DebugContext(ctx, "ReadWorker done")
+		cancel()
 	})
 
 	wg.Wait()
-	logger.Info("Client closed")
+	logger.InfoContext(ctx, "Client closed")
 }

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
@@ -11,11 +12,17 @@ import (
 
 type (
 	RESP2_Array          []string
-	RESP2_CommandHandler func(RESP2_Array, chan string)
+
+	RESP2_CommandHandlerParams struct {
+		Ctx    context.Context
+		Params RESP2_Array
+	}
+	RESP2_CommandHandlerReturn string
+	RESP2_CommandHandlerSignature func(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn
 )
 
 var (
-	RESP2_Commands_Map = map[string]RESP2_CommandHandler{
+	RESP2_Commands_Map = map[string]RESP2_CommandHandlerSignature{
 		"PING":  PING,
 		"ECHO":  ECHO,
 		"SET":   SET,
@@ -23,34 +30,39 @@ var (
 		"RPUSH": RPUSH,
 	}
 
-	Cache       = map[string]string{}
-	CacheMutex  sync.RWMutex
-	Timers      = map[string]*time.Timer{}
-	TimersMutex sync.Mutex
+	cache       = map[string]string{}
+	cacheMutex  sync.RWMutex
+	timers      = map[string]*time.Timer{}
+	timersMutex sync.Mutex
+	lists = map[string][]string{}
 )
 
-func RPUSH(tokens RESP2_Array, c chan string) {
-	c <- "+PONG\r\n"
+func RPUSH(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	listName := params.Params[1]
+	value := params.Params[2]
+	lists[listName] = append(lists[listName], value)
+	return RESP2_CommandHandlerReturn(fmt.Sprintf(":%d\r\n", len(lists[listName])))
 }
 
-func PING(tokens RESP2_Array, c chan string) {
-	c <- "+PONG\r\n"
+func PING(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	return "+PONG\r\n"
 }
 
-func ECHO(tokens RESP2_Array, c chan string) {
+func ECHO(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	tokens := params.Params
 	if len(tokens) < 2 {
-		c <- "-ERR No message provided to ECHO!\r\n"
-		return
+		return "-ERR No message provided to ECHO!\r\n"
 	}
 	if len(tokens) > 2 {
-		c <- "-ERR ECHO accepts exactly 1 argument!\r\n"
-		return
+		return "-ERR ECHO accepts exactly 1 argument!\r\n"
 	}
 	response := tokens[1]
-	c <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+	return RESP2_CommandHandlerReturn(fmt.Sprintf("$%d\r\n%s\r\n", len(response), response))
 }
 
-func SET(tokens RESP2_Array, c chan string) {
+func SET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	tokens := args.Params
+	ctx := args.Ctx
 	arrSize := len(tokens)
 	switch {
 	case arrSize >= 3:
@@ -59,12 +71,10 @@ func SET(tokens RESP2_Array, c chan string) {
 
 		// Validate key and value are not empty
 		if key == "" {
-			c <- "-ERR Key cannot be empty!\r\n"
-			return
+			return "-ERR Key cannot be empty!\r\n"
 		}
 		if value == "" {
-			c <- "-ERR Value cannot be empty!\r\n"
-			return
+			return "-ERR Value cannot be empty!\r\n"
 		}
 
 		expiryDurationMs := 0
@@ -72,75 +82,76 @@ func SET(tokens RESP2_Array, c chan string) {
 		for i := 3; i < arrSize; i++ {
 			if tokens[i] == "PX" {
 				if i+1 >= arrSize {
-					c <- "-ERR No expiration specified!\r\n"
-					return
+					return "-ERR No expiration specified!\r\n"
 				} else {
 					expiryDurationMs, err = strconv.Atoi(tokens[i+1])
 					if err != nil {
-						c <- fmt.Sprintf("-ERR Could not convert %s to an int for expiry! Err: %s\r\n", tokens[i+1], err)
-						return
+						return RESP2_CommandHandlerReturn(fmt.Sprintf("-ERR Could not convert %s to an int for expiry! Err: %s\r\n", tokens[i+1], err))
 					}
 				}
 			}
 		}
 
 		// Stop any existing timer for this key
-		TimersMutex.Lock()
-		if timer, exists := Timers[key]; exists {
-			logger.Debug("Cancelling existing timer", "key", key)
+		timersMutex.Lock()
+		if timer, exists := timers[key]; exists {
+			logger.DebugContext(context.Background(), "Cancelling existing timer", "key", key)
 			timer.Stop()
-			delete(Timers, key)
+			delete(timers, key)
 		}
-		TimersMutex.Unlock()
+		timersMutex.Unlock()
 
-		CacheMutex.Lock()
-		Cache[key] = value
-		CacheMutex.Unlock()
-		logger.Debug("SET executed", "key", key, "value", value, "expiry_ms", expiryDurationMs)
+		cacheMutex.Lock()
+		cache[key] = value
+		cacheMutex.Unlock()
+		logger.DebugContext(ctx, "SET executed", "key", key, "value", value, "expiry_ms", expiryDurationMs)
 
 		if expiryDurationMs > 0 {
 			timer := time.NewTimer(time.Millisecond * time.Duration(expiryDurationMs))
-			TimersMutex.Lock()
-			Timers[key] = timer
-			TimersMutex.Unlock()
+			timersMutex.Lock()
+			timers[key] = timer
+			timersMutex.Unlock()
 
 			go func() {
 				<-timer.C
 
-				CacheMutex.Lock()
-				delete(Cache, key)
-				CacheMutex.Unlock()
+				cacheMutex.Lock()
+				delete(cache, key)
+				cacheMutex.Unlock()
 
-				TimersMutex.Lock()
-				delete(Timers, key)
-				TimersMutex.Unlock()
-				logger.Debug("Key expired", "key", key)
+				timersMutex.Lock()
+				delete(timers, key)
+				timersMutex.Unlock()
+				logger.DebugContext(ctx, "Key expired", "key", key)
 			}()
 		}
 
-		c <- "+OK\r\n"
+		return "+OK\r\n"
 	case arrSize == 2:
-		c <- fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1])
+		return RESP2_CommandHandlerReturn(fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1]))
 	case arrSize == 1:
-		c <- "-ERR No key given!\r\n"
+		return "-ERR No key given!\r\n"
+	default:
+		return "-ERR SET command accepts at most 2 arguments (key and value) plus optional PX expiry!\r\n"
 	}
 }
 
-func GET(tokens RESP2_Array, c chan string) {
+func GET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	ctx := args.Ctx
+	tokens := args.Params
 	if len(tokens) < 2 {
-		c <- "-ERR No key provided to GET!\r\n"
-		return
+		return "-ERR No key provided to GET!\r\n"
 	}
 	key := tokens[1]
-	CacheMutex.RLock()
-	response, ok := Cache[key]
-	CacheMutex.RUnlock()
+	cacheMutex.RLock()
+	response, ok := cache[key]
+	cacheMutex.RUnlock()
 
 	if ok {
-		logger.Debug("GET cache hit", "key", key)
-		c <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+		logger.DebugContext(ctx, "GET cache hit", "key", key)
+		return RESP2_CommandHandlerReturn(fmt.Sprintf("$%d\r\n%s\r\n", len(response), response))
 	} else {
-		logger.Debug("GET cache miss", "key", key)
-		c <- "$-1\r\n"
+		logger.DebugContext(ctx, "GET cache miss", "key", key)
+		return "$-1\r\n"
 	}
 }
