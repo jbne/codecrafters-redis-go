@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/codecrafters-io/redis-starter-go/lib"
 	"github.com/codecrafters-io/redis-starter-go/logger"
 )
 
@@ -80,20 +80,20 @@ func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 		return fmt.Sprintf("-ERR Could not convert %s to an int for end index! Err: %s\r\n", params.Params[3], err)
 	}
 
+	if startIndex < 0 {
+		startIndex = len(lists[listName]) + startIndex
+	}
+
+	if stopIndex < 0 {
+		stopIndex = len(lists[listName]) + stopIndex
+	}
+
 	if startIndex > stopIndex {
 		return "*0\r\n"
 	}
 
 	stopIndex = min(len(lists[listName]), stopIndex + 1) // +1 because Redis LRANGE is inclusive, but Go slices are exclusive on the end index
-	return RespifyArray(lists[listName][startIndex:stopIndex])	
-}
-
-func RespifyArray(s []string) RESP2_CommandHandlerReturn {
-	ret := make([]string, len(s))
-	for i, str := range s {
-		ret[i] = fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
-	}
-	return fmt.Sprintf("*%d\r\n%s", len(s), strings.Join(ret, ""))
+	return lib.RespifyArray(lists[listName][startIndex:stopIndex])	
 }
 
 func PING(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {

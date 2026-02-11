@@ -4,12 +4,21 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/codecrafters-io/redis-starter-go/logger"
 )
+
+func RespifyArray(s []string) string {
+	ret := make([]string, len(s))
+	for i, str := range s {
+		ret[i] = fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
+	}
+	return fmt.Sprintf("*%d\r\n%s", len(s), strings.Join(ret, ""))
+}
 
 func ScanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	if atEOF && len(data) == 0 {
