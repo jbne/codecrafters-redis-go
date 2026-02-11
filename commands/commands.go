@@ -89,10 +89,11 @@ func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 }
 
 func RespifyArray(s []string) RESP2_CommandHandlerReturn {
+	ret := make([]string, len(s))
 	for i, str := range s {
-		s[i] = fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
+		ret[i] = fmt.Sprintf("$%d\r\n%s\r\n", len(str), str)
 	}
-	return fmt.Sprintf("*%d\r\n%s", len(s), strings.Join(s, ""))
+	return fmt.Sprintf("*%d\r\n%s", len(s), strings.Join(ret, ""))
 }
 
 func PING(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
