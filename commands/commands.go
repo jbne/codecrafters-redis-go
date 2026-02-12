@@ -14,12 +14,12 @@ import (
 type (
 	RESP2_Array []string
 
-	RESP2_CommandHandlerParams struct {
+	RESP2_CommandRequest struct {
 		Ctx    context.Context
 		Params RESP2_Array
 	}
-	RESP2_CommandHandlerReturn = string
-	RESP2_CommandHandlerSignature func(RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn
+	RESP2_CommandResponse = string
+	RESP2_CommandHandlerSignature func(RESP2_CommandRequest) RESP2_CommandResponse
 	RESP2_CommandsEntry struct {
 		Execute RESP2_CommandHandlerSignature
 	}
@@ -46,79 +46,94 @@ var (
 	lists = map[string][]string{}
 )
 
-func LPOP(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
-	if len(params.Params) != 2 {
-		return "-ERR LPOP requires exactly 2 arguments (list name)!\r\n"
+func LPOP(request RESP2_CommandRequest) RESP2_CommandResponse {
+	if len(request.Params) < 2 {
+		return "-ERR LPOP requires 2 or more arguments!\r\n"
 	}
 	
-	listName := params.Params[1]
+	listName := request.Params[1]
 	if _, exists := lists[listName]; !exists || len(lists[listName]) == 0 {
 		return "$-1\r\n"
 	}
 
-	value := lists[listName][0]
-	lists[listName] = lists[listName][1:]
-	
-	return fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
+	if len(request.Params) != 3 {
+		value := lists[listName][0]
+		lists[listName] = lists[listName][1:]
+		
+		return fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
+	}
+
+	count, err := strconv.Atoi(request.Params[2])
+	if err != nil {
+		return fmt.Sprintf("-ERR Could not convert %s to an int for count! Err: %s\r\n", request.Params[2], err)
+	}
+	if count < 1 {
+		return "-ERR Count must be a positive integer!\r\n"
+	}
+
+	count = min(count, len(lists[listName]))
+	values := lists[listName][:count]
+	lists[listName] = lists[listName][count:]
+	return lib.RespifyArray(values)
 }
 
-func LLEN(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
-	if len(params.Params) != 2 {
+func LLEN(request RESP2_CommandRequest) RESP2_CommandResponse {
+	if len(request.Params) != 2 {
 		return "-ERR LLEN requires exactly 2 arguments (list name)!\r\n"
 	}
 	
-	listName := params.Params[1]
+	listName := request.Params[1]
 	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
 }
 
-func LPUSH(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
-	if len(params.Params) < 3 {
+func LPUSH(request RESP2_CommandRequest) RESP2_CommandResponse {
+	if len(request.Params) < 3 {
 		return "-ERR LPUSH requires at least 2 arguments (list name and value)!\r\n"
 	}
 
-	listName := params.Params[1]
-	for _, v := range params.Params[2:] {
+	listName := request.Params[1]
+	for _, v := range request.Params[2:] {
 		lists[listName] = append([]string{v}, lists[listName]...)
 	}
 	
 	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
 }
 
-func RPUSH(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
-	if len(params.Params) < 3 {
+func RPUSH(request RESP2_CommandRequest) RESP2_CommandResponse {
+	if len(request.Params) < 3 {
 		return "-ERR RPUSH requires at least 2 arguments (list name and value)!\r\n"
 	}
 
-	listName := params.Params[1]
-	for _, v := range params.Params[2:] {
+	listName := request.Params[1]
+	for _, v := range request.Params[2:] {
 		lists[listName] = append(lists[listName], v)
 	}
 	
 	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
 }
 
-func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
-	if len(params.Params) < 4 {
+func LRANGE(request RESP2_CommandRequest) RESP2_CommandResponse {
+	if len(request.Params) < 4 {
 		return "-ERR LRANGE requires at least 3 arguments (list name, start index, end index)!\r\n"
 	}
 
-	listName := params.Params[1]
+	listName := request.Params[1]
 	if _, exists := lists[listName]; !exists {
 		return "*0\r\n"
 	}
 
-	startIndex, err := strconv.Atoi(params.Params[2])
+	startIndex, err := strconv.Atoi(request.Params[2])
 	if err != nil {
-		return fmt.Sprintf("-ERR Could not convert %s to an int for start index! Err: %s\r\n", params.Params[2], err)
+		return fmt.Sprintf("-ERR Could not convert %s to an int for start index! Err: %s\r\n", request.Params[2], err)
 	}
 
 	if startIndex >= len(lists[listName]) {
 		return "*0\r\n"
 	}
 
-	stopIndex, err := strconv.Atoi(params.Params[3])
+	stopIndex, err := strconv.Atoi(request.Params[3])
 	if err != nil {
-		return fmt.Sprintf("-ERR Could not convert %s to an int for end index! Err: %s\r\n", params.Params[3], err)
+		return fmt.Sprintf("-ERR Could not convert %s to an int for end index! Err: %s\r\n", request.Params[3], err)
 	}
 
 	if startIndex < 0 {
@@ -137,12 +152,12 @@ func LRANGE(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 	return lib.RespifyArray(lists[listName][startIndex:stopIndex])
 }
 
-func PING(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+func PING(request RESP2_CommandRequest) RESP2_CommandResponse {
 	return "+PONG\r\n"
 }
 
-func ECHO(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
-	tokens := params.Params
+func ECHO(request RESP2_CommandRequest) RESP2_CommandResponse {
+	tokens := request.Params
 	if len(tokens) < 2 {
 		return "-ERR No message provided to ECHO!\r\n"
 	}
@@ -153,9 +168,9 @@ func ECHO(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 	return fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
 }
 
-func SET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
-	tokens := args.Params
-	ctx := args.Ctx
+func SET(request RESP2_CommandRequest) RESP2_CommandResponse {
+	tokens := request.Params
+	ctx := request.Ctx
 	arrSize := len(tokens)
 	switch {
 	case arrSize >= 3:
@@ -229,9 +244,9 @@ func SET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 	}
 }
 
-func GET(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
-	ctx := args.Ctx
-	tokens := args.Params
+func GET(request RESP2_CommandRequest) RESP2_CommandResponse {
+	ctx := request.Ctx
+	tokens := request.Params
 	if len(tokens) < 2 {
 		return "-ERR No key provided to GET!\r\n"
 	}

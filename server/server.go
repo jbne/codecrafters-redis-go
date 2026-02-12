@@ -146,7 +146,7 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 			continue
 		}
 
-		response := entry.Execute(commands.RESP2_CommandHandlerParams{
+		response := entry.Execute(commands.RESP2_CommandRequest{
 			Ctx:    ctx,
 			Params: commandArray,
 		})
