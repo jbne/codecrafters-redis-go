@@ -19,14 +19,14 @@ type (
 		Params RESP2_Array
 	}
 	RESP2_CommandHandlerReturn = string
-	RESP2_CommandHandlerSignature func(args RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn
-	RESP2_CommandsMapEntry struct {
+	RESP2_CommandHandlerSignature func(RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn
+	RESP2_CommandsEntry struct {
 		Execute RESP2_CommandHandlerSignature
 	}
 )
 
 var (
-	RESP2_Commands_Map = map[string]RESP2_CommandsMapEntry{
+	RESP2_Commands_Map = map[string]RESP2_CommandsEntry{
 		"PING":  {Execute: PING},
 		"ECHO":  {Execute: ECHO},
 		"SET":   {Execute: SET},
@@ -34,6 +34,7 @@ var (
 		"RPUSH": {Execute: RPUSH},
 		"LRANGE": {Execute: LRANGE},
 		"LPUSH": {Execute: LPUSH},
+		"LLEN": {Execute: LLEN},
 	}
 
 	cache       = map[string]string{}
@@ -43,6 +44,15 @@ var (
 
 	lists = map[string][]string{}
 )
+
+func LLEN(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	if len(params.Params) != 2 {
+		return "-ERR LLEN requires exactly 2 arguments (list name)!\r\n"
+	}
+	
+	listName := params.Params[1]
+	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
+}
 
 func LPUSH(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 	if len(params.Params) < 3 {
