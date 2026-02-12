@@ -35,6 +35,7 @@ var (
 		"LRANGE": {Execute: LRANGE},
 		"LPUSH": {Execute: LPUSH},
 		"LLEN": {Execute: LLEN},
+		"LPOP": {Execute: LPOP},
 	}
 
 	cache       = map[string]string{}
@@ -44,6 +45,22 @@ var (
 
 	lists = map[string][]string{}
 )
+
+func LPOP(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
+	if len(params.Params) != 2 {
+		return "-ERR LPOP requires exactly 2 arguments (list name)!\r\n"
+	}
+	
+	listName := params.Params[1]
+	if _, exists := lists[listName]; !exists || len(lists[listName]) == 0 {
+		return "$-1\r\n"
+	}
+
+	value := lists[listName][0]
+	lists[listName] = lists[listName][1:]
+	
+	return fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
+}
 
 func LLEN(params RESP2_CommandHandlerParams) RESP2_CommandHandlerReturn {
 	if len(params.Params) != 2 {
