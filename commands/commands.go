@@ -76,6 +76,7 @@ func BLPOP(request RESP2_CommandRequest) RESP2_CommandResponse {
 	added := make(chan bool)
 	onSet := make(chan bool)
 	lists.OnSet = func(key string, value []string) {
+		logger.Debug("OnSet called for key", "key", key)
 		onSet <- true
 	}
 	
@@ -89,6 +90,7 @@ func BLPOP(request RESP2_CommandRequest) RESP2_CommandResponse {
 	}()
 
 	if <-added {
+		logger.Debug("BLPOP calling LPOP to remove element from list", "listName", listName)
 		return LPOP(RESP2_CommandRequest{
 			Ctx: request.Ctx,
 			Params: []string{"LPOP", listName},

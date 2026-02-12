@@ -43,8 +43,8 @@ func (m *BlockingMap[K, V]) Set(key K, value V, expiryDuration time.Duration) {
 	m.timersMutex.Unlock()
 	m.mapMutex.Lock()
 	m.values[key] = value
-	m.OnSet(key, value)
 	m.mapMutex.Unlock()
+	go m.OnSet(key, value)
 	logger.Debug("SET executed", "key", key, "value", value, "expiry_ms", expiryDuration.Milliseconds())
 
 	if expiryDuration.Milliseconds() > 0 {
