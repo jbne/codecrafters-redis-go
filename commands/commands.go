@@ -60,11 +60,42 @@ func BLPOP(request RESP2_CommandRequest) RESP2_CommandResponse {
 	}
 
 	listName := request.Params[1]
-	if _, exists := lists.Get(listName); !exists {
-		lists.Set(listName, []string{}, 0)
+	if _, exists := lists.Get(listName); exists {
+		return LPOP(RESP2_CommandRequest{
+			Ctx: request.Ctx,
+			Params: []string{"LPOP", listName},
+		})
 	}
 
-	return ""
+	timer := time.NewTimer(time.Duration(timeoutSeconds)*time.Second)
+	if timeoutSeconds == 0 {
+		// If timeout is 0, we should block indefinitely until an element is available. We can achieve this by not starting the timer at all and just waiting on a channel that will never receive anything.
+		timer.Stop()
+	}
+
+	added := make(chan bool)
+	onSet := make(chan bool)
+	lists.OnSet = func(key string, value []string) {
+		onSet <- true
+	}
+	
+	go func() {
+		select {
+		case <-timer.C:
+			added <- false
+		case <-onSet:
+			added <- true
+		}
+	}()
+
+	if <-added {
+		return LPOP(RESP2_CommandRequest{
+			Ctx: request.Ctx,
+			Params: []string{"LPOP", listName},
+		})
+	}
+
+	return "$-1\r\n"
 }
 
 func LPOP(request RESP2_CommandRequest) RESP2_CommandResponse {

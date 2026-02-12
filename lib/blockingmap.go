@@ -14,6 +14,8 @@ type (
 
 		timers map[Key]time.Timer
 		timersMutex sync.Mutex
+
+		OnSet func(Key, Value)
 	}
 )
 
@@ -41,6 +43,7 @@ func (m *BlockingMap[K, V]) Set(key K, value V, expiryDuration time.Duration) {
 	m.timersMutex.Unlock()
 	m.mapMutex.Lock()
 	m.values[key] = value
+	m.OnSet(key, value)
 	m.mapMutex.Unlock()
 	logger.Debug("SET executed", "key", key, "value", value, "expiry_ms", expiryDuration.Milliseconds())
 
