@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/lib"
@@ -29,22 +28,44 @@ var (
 	RESP2_Commands_Map = map[string]RESP2_CommandsEntry{
 		"PING":  {Execute: PING},
 		"ECHO":  {Execute: ECHO},
+
+		// Cache commands
 		"SET":   {Execute: SET},
 		"GET":   {Execute: GET},
+
+		// List commands
 		"RPUSH": {Execute: RPUSH},
 		"LRANGE": {Execute: LRANGE},
 		"LPUSH": {Execute: LPUSH},
 		"LLEN": {Execute: LLEN},
 		"LPOP": {Execute: LPOP},
+		"BLPOP": {Execute: BLPOP},
 	}
 
-	cache       = map[string]string{}
-	cacheMutex  sync.RWMutex
-	timers      = map[string]*time.Timer{}
-	timersMutex sync.Mutex
-
-	lists = map[string][]string{}
+	cache = lib.NewBlockingMap[string, string]()
+	lists = lib.NewBlockingMap[string, []string]()
 )
+
+func BLPOP(request RESP2_CommandRequest) RESP2_CommandResponse {
+	if len(request.Params) < 3 {
+		return "-ERR BLPOP requires at least 2 arguments (list name and timeout)!\r\n"
+	}
+
+	timeoutSeconds, err := strconv.Atoi(request.Params[len(request.Params)-1])
+	if err != nil {
+		return fmt.Sprintf("-ERR Could not convert %s to an int for timeout! Err: %s\r\n", request.Params[len(request.Params)-1], err)
+	}
+	if timeoutSeconds < 0 {
+		return "-ERR Timeout must be a non-negative integer!\r\n"
+	}
+
+	listName := request.Params[1]
+	if _, exists := lists.Get(listName); !exists {
+		lists.Set(listName, []string{}, 0)
+	}
+
+	return ""
+}
 
 func LPOP(request RESP2_CommandRequest) RESP2_CommandResponse {
 	if len(request.Params) < 2 {
@@ -52,13 +73,14 @@ func LPOP(request RESP2_CommandRequest) RESP2_CommandResponse {
 	}
 	
 	listName := request.Params[1]
-	if _, exists := lists[listName]; !exists || len(lists[listName]) == 0 {
+	list, exists := lists.Get(listName)
+	if !exists || len(list) == 0 {
 		return "$-1\r\n"
 	}
 
 	if len(request.Params) != 3 {
-		value := lists[listName][0]
-		lists[listName] = lists[listName][1:]
+		value := list[0]
+		lists.Set(listName, list[1:], 0)
 		
 		return fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
 	}
@@ -71,9 +93,9 @@ func LPOP(request RESP2_CommandRequest) RESP2_CommandResponse {
 		return "-ERR Count must be a positive integer!\r\n"
 	}
 
-	count = min(count, len(lists[listName]))
-	values := lists[listName][:count]
-	lists[listName] = lists[listName][count:]
+	count = min(count, len(list))
+	values := list[:count]
+	lists.Set(listName, list[count:], 0)
 	return lib.RespifyArray(values)
 }
 
@@ -83,7 +105,11 @@ func LLEN(request RESP2_CommandRequest) RESP2_CommandResponse {
 	}
 	
 	listName := request.Params[1]
-	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
+	list, exists := lists.Get(listName)
+	if !exists {
+		return "-ERR List does not exist!\r\n"
+	}
+	return fmt.Sprintf(":%d\r\n", len(list))
 }
 
 func LPUSH(request RESP2_CommandRequest) RESP2_CommandResponse {
@@ -92,11 +118,16 @@ func LPUSH(request RESP2_CommandRequest) RESP2_CommandResponse {
 	}
 
 	listName := request.Params[1]
+	list, exists := lists.Get(listName)
+	if !exists {
+			list = []string{}
+		}
 	for _, v := range request.Params[2:] {
-		lists[listName] = append([]string{v}, lists[listName]...)
+		list = append([]string{v}, list...)
 	}
+	lists.Set(listName, list, 0)
 	
-	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
+	return fmt.Sprintf(":%d\r\n", len(list))
 }
 
 func RPUSH(request RESP2_CommandRequest) RESP2_CommandResponse {
@@ -105,11 +136,16 @@ func RPUSH(request RESP2_CommandRequest) RESP2_CommandResponse {
 	}
 
 	listName := request.Params[1]
-	for _, v := range request.Params[2:] {
-		lists[listName] = append(lists[listName], v)
+	list, exists := lists.Get(listName)
+	if !exists {
+		list = []string{}
 	}
+	for _, v := range request.Params[2:] {
+		list = append(list, v)
+	}
+	lists.Set(listName, list, 0)
 	
-	return fmt.Sprintf(":%d\r\n", len(lists[listName]))
+	return fmt.Sprintf(":%d\r\n", len(list))
 }
 
 func LRANGE(request RESP2_CommandRequest) RESP2_CommandResponse {
@@ -118,7 +154,7 @@ func LRANGE(request RESP2_CommandRequest) RESP2_CommandResponse {
 	}
 
 	listName := request.Params[1]
-	if _, exists := lists[listName]; !exists {
+	if _, exists := lists.Get(listName); !exists {
 		return "*0\r\n"
 	}
 
@@ -127,7 +163,11 @@ func LRANGE(request RESP2_CommandRequest) RESP2_CommandResponse {
 		return fmt.Sprintf("-ERR Could not convert %s to an int for start index! Err: %s\r\n", request.Params[2], err)
 	}
 
-	if startIndex >= len(lists[listName]) {
+	list, exists := lists.Get(listName)
+	if !exists {
+		return "*0\r\n"
+	}
+	if startIndex >= len(list) {
 		return "*0\r\n"
 	}
 
@@ -137,19 +177,19 @@ func LRANGE(request RESP2_CommandRequest) RESP2_CommandResponse {
 	}
 
 	if startIndex < 0 {
-		startIndex = max(len(lists[listName]) + startIndex, 0) // Negative indices count from the end of the list, but we also need to ensure we don't go below 0
+		startIndex = max(len(list) + startIndex, 0) // Negative indices count from the end of the list, but we also need to ensure we don't go below 0
 	}
 
 	if stopIndex < 0 {
-		stopIndex = len(lists[listName]) + stopIndex
+		stopIndex = len(list) + stopIndex
 	}
 
 	if startIndex > stopIndex {
 		return "*0\r\n"
 	}
 
-	stopIndex = min(len(lists[listName]), stopIndex + 1) // +1 because Redis LRANGE is inclusive, but Go slices are exclusive on the end index
-	return lib.RespifyArray(lists[listName][startIndex:stopIndex])
+	stopIndex = min(len(list), stopIndex + 1) // +1 because Redis LRANGE is inclusive, but Go slices are exclusive on the end index
+	return lib.RespifyArray(list[startIndex:stopIndex])
 }
 
 func PING(request RESP2_CommandRequest) RESP2_CommandResponse {
@@ -170,7 +210,6 @@ func ECHO(request RESP2_CommandRequest) RESP2_CommandResponse {
 
 func SET(request RESP2_CommandRequest) RESP2_CommandResponse {
 	tokens := request.Params
-	ctx := request.Ctx
 	arrSize := len(tokens)
 	switch {
 	case arrSize >= 3:
@@ -200,39 +239,7 @@ func SET(request RESP2_CommandRequest) RESP2_CommandResponse {
 			}
 		}
 
-		// Stop any existing timer for this key
-		timersMutex.Lock()
-		if timer, exists := timers[key]; exists {
-			logger.DebugContext(context.Background(), "Cancelling existing timer", "key", key)
-			timer.Stop()
-			delete(timers, key)
-		}
-		timersMutex.Unlock()
-
-		cacheMutex.Lock()
-		cache[key] = value
-		cacheMutex.Unlock()
-		logger.DebugContext(ctx, "SET executed", "key", key, "value", value, "expiry_ms", expiryDurationMs)
-
-		if expiryDurationMs > 0 {
-			timer := time.NewTimer(time.Millisecond * time.Duration(expiryDurationMs))
-			timersMutex.Lock()
-			timers[key] = timer
-			timersMutex.Unlock()
-
-			go func() {
-				<-timer.C
-
-				cacheMutex.Lock()
-				delete(cache, key)
-				cacheMutex.Unlock()
-
-				timersMutex.Lock()
-				delete(timers, key)
-				timersMutex.Unlock()
-				logger.DebugContext(ctx, "Key expired", "key", key)
-			}()
-		}
+		cache.Set(key, value, time.Duration(expiryDurationMs)*time.Millisecond)
 
 		return "+OK\r\n"
 	case arrSize == 2:
@@ -251,9 +258,7 @@ func GET(request RESP2_CommandRequest) RESP2_CommandResponse {
 		return "-ERR No key provided to GET!\r\n"
 	}
 	key := tokens[1]
-	cacheMutex.RLock()
-	response, ok := cache[key]
-	cacheMutex.RUnlock()
+	response, ok := cache.Get(key)
 
 	if ok {
 		logger.DebugContext(ctx, "GET cache hit", "key", key)

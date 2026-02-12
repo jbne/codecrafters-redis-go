@@ -137,20 +137,23 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 			return // EOF - client disconnected cleanly
 		}
 
-		respStr := RespifyArray(commandArray)
-		logger.DebugContext(ctx, "Command received", "client", remoteAddr, "request", respStr)
+		go func() {
 
-		entry, ok := commands.RESP2_Commands_Map[commandArray[0]]
-		if !ok {
-			HandleError(fmt.Sprintf("Unrecognized command '%s'!", commandArray[0]), false)
-			continue
-		}
+			respStr := RespifyArray(commandArray)
+			logger.DebugContext(ctx, "Command received", "client", remoteAddr, "request", respStr)
 
-		response := entry.Execute(commands.RESP2_CommandRequest{
-			Ctx:    ctx,
-			Params: commandArray,
-		})
-		c <- string(response)
+			entry, ok := commands.RESP2_Commands_Map[commandArray[0]]
+			if !ok {
+				HandleError(fmt.Sprintf("Unrecognized command '%s'!", commandArray[0]), false)
+				return
+			}
+
+			response := entry.Execute(commands.RESP2_CommandRequest{
+				Ctx:    ctx,
+				Params: commandArray,
+			})
+			c <- string(response)
+		}()
 	}
 }
 
