@@ -8,4 +8,4 @@
 
 set -e # Exit on failure
 
-go build -o /tmp/codecrafters-build-redis-go server/*.go
+go build -o /tmp/codecrafters-build-redis-go tcpserver/*.go
