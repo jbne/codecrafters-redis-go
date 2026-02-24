@@ -1,3 +1,3 @@
-go fmt $PSScriptRoot/server
-go fmt $PSScriptRoot/client
-go run $PSScriptRoot/server
+go fmt $PSScriptRoot/...
+$env:CGO_ENABLED=1
+go run -race $PSScriptRoot/tcpserver

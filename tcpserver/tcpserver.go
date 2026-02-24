@@ -2,18 +2,19 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/codecrafters-io/redis-starter-go/commands"
-	"github.com/codecrafters-io/redis-starter-go/lib"
-	"github.com/codecrafters-io/redis-starter-go/logger"
+	"github.com/codecrafters-io/redis-starter-go/respcommands"
+	"github.com/codecrafters-io/redis-starter-go/resplib"
+	"github.com/lmittmann/tint"
 )
 
 type (
@@ -21,16 +22,7 @@ type (
 	ErrorHandler func(string, bool)
 )
 
-func RespifyArray(tokens []string) string {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "*%d\r\n", len(tokens))
-	for _, token := range tokens {
-		fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(token), token)
-	}
-	return buf.String()
-}
-
-func ParseArray(scan <-chan string, handleError ErrorHandler) commands.RESP2_Array {
+func ParseArray(scan <-chan string, handleError ErrorHandler) resplib.RESP2_Array {
 	line, ok := <-scan
 	if !ok {
 		return nil // Channel closed - client disconnected
@@ -54,7 +46,7 @@ func ParseArray(scan <-chan string, handleError ErrorHandler) commands.RESP2_Arr
 		return nil
 	}
 
-	ret := make(commands.RESP2_Array, 0, arrSize)
+	ret := make(resplib.RESP2_Array, 0, arrSize)
 	for range arrSize {
 		line, ok = <-scan
 		if !ok {
@@ -101,12 +93,12 @@ func ParseArray(scan <-chan string, handleError ErrorHandler) commands.RESP2_Arr
 func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 	defer close(c)
 	remoteAddr := conn.RemoteAddr()
-	logger.DebugContext(ctx, "ReadWorker started", "client", remoteAddr)
+	slog.DebugContext(ctx, "ReadWorker started", "client", remoteAddr)
 
 	err := false
 	HandleError := func(str string, terminate bool) {
 		_, file, line, _ := runtime.Caller(1)
-		logger.ErrorContext(ctx, "Protocol error", "file", file, "line", line, "error", str)
+		slog.ErrorContext(ctx, "Protocol error", "file", file, "line", line, "error", str)
 		prefix := "-ERR"
 		if terminate {
 			err = true
@@ -115,12 +107,11 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 		c <- fmt.Sprintf("%s %s\r\n", prefix, str)
 	}
 
-	in, ctx := lib.CreateScannerChannel(ctx, conn, lib.ScanCRLF)
-
+	in, ctx := resplib.CreateScannerChannel(ctx, conn, resplib.ScanCRLF)
 	for {
 		select {
 		case <-ctx.Done():
-			logger.DebugContext(ctx, "ReadWorker context cancelled", "client", remoteAddr)
+			slog.DebugContext(ctx, "ReadWorker context cancelled", "client", remoteAddr)
 			return // Exit when server is shutting down
 		default:
 		}
@@ -128,63 +119,50 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 		commandArray := ParseArray(in, HandleError)
 
 		if err {
-			logger.DebugContext(ctx, "ReadWorker exiting due to protocol error", "client", remoteAddr)
+			slog.DebugContext(ctx, "ReadWorker exiting due to protocol error", "client", remoteAddr)
 			return
 		}
 
 		if len(commandArray) == 0 {
-			logger.DebugContext(ctx, "ReadWorker exiting - client disconnected", "client", remoteAddr)
+			slog.DebugContext(ctx, "ReadWorker exiting - client disconnected", "client", remoteAddr)
 			return // EOF - client disconnected cleanly
 		}
 
-		go func() {
-
-			respStr := RespifyArray(commandArray)
-			logger.DebugContext(ctx, "Command received", "client", remoteAddr, "request", respStr)
-
-			entry, ok := commands.RESP2_Commands_Map[commandArray[0]]
-			if !ok {
-				HandleError(fmt.Sprintf("Unrecognized command '%s'!", commandArray[0]), false)
-				return
-			}
-
-			response := entry.Execute(commands.RESP2_CommandRequest{
-				Ctx:    ctx,
-				Params: commandArray,
-			})
-			c <- string(response)
-		}()
+		respcommands.ExecuteCommand(ctx, resplib.RESP2_CommandRequest{
+			Params:          commandArray,
+			ResponseChannel: c,
+		})
 	}
 }
 
 func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 	defer conn.Close()
 	remoteAddr := conn.RemoteAddr()
-	logger.DebugContext(ctx, "WriteWorker started", "client", remoteAddr)
+	slog.DebugContext(ctx, "WriteWorker started", "client", remoteAddr)
 	writer := bufio.NewWriter(conn)
 	for {
 		select {
 		case <-ctx.Done():
-			logger.DebugContext(ctx, "WriteWorker context cancelled", "client", remoteAddr)
+			slog.DebugContext(ctx, "WriteWorker context cancelled", "client", remoteAddr)
 			return
 		case str, ok := <-in:
 			if !ok {
-				logger.DebugContext(ctx, "WriteWorker exiting - response channel closed", "client", remoteAddr)
+				slog.DebugContext(ctx, "WriteWorker exiting - response channel closed", "client", remoteAddr)
 				return // Channel closed by ReadWorker
 			}
 
-			logger.DebugContext(ctx, "Response sent", "client", remoteAddr, "response", str)
 			_, err := writer.WriteString(str)
 			if strings.HasPrefix(str, "-ERRTERM") {
-				logger.DebugContext(ctx, "WriteWorker exiting - terminating error sent", "client", remoteAddr)
+				slog.DebugContext(ctx, "WriteWorker exiting - terminating error sent", "client", remoteAddr)
 				return
 			}
 
 			if err != nil {
-				logger.ErrorContext(ctx, "Connection lost", "client", remoteAddr, "error", err)
+				slog.ErrorContext(ctx, "Connection lost", "client", remoteAddr, "error", err)
 				break
 			}
 
+			slog.DebugContext(ctx, "Response sent", "client", remoteAddr, "response", str)
 			writer.Flush()
 		}
 	}
@@ -199,10 +177,10 @@ func ClientConnectionWorker(ctx context.Context) {
 	port := "6379"
 	endpoint := fmt.Sprintf("%s:%s", address, port)
 
-	logger.InfoContext(ctx, "Attempting to start listening", "endpoint", endpoint)
+	slog.InfoContext(ctx, "Attempting to start listening", "endpoint", endpoint)
 	listener, err := net.Listen(network, endpoint)
 	if err != nil {
-		logger.ErrorContext(ctx, "Failed to bind", "endpoint", endpoint, "error", err)
+		slog.ErrorContext(ctx, "Failed to bind", "endpoint", endpoint, "error", err)
 		return
 	}
 
@@ -211,11 +189,11 @@ func ClientConnectionWorker(ctx context.Context) {
 	defer listener.Close()
 	in := make(chan net.Conn)
 	wg.Go(func() {
-		logger.InfoContext(ctx, "Listening for client connections", "endpoint", endpoint)
+		slog.InfoContext(ctx, "Listening for client connections", "endpoint", endpoint)
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				logger.ErrorContext(ctx, "Error accepting connection", "error", err)
+				slog.ErrorContext(ctx, "Error accepting connection", "error", err)
 				return
 			}
 
@@ -231,20 +209,20 @@ func ClientConnectionWorker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.InfoContext(ctx, "Server shutting down")
+			slog.InfoContext(ctx, "Server shutting down")
 			cancel()
 			return
 		case conn := <-in:
 			c := make(chan string)
 			remoteAddr := conn.RemoteAddr()
-			logger.InfoContext(ctx, "Client connected", "client", remoteAddr)
+			slog.InfoContext(ctx, "Client connected", "client", remoteAddr)
 			wg.Go(func() {
 				ReadWorker(ctx, conn, c)
-				logger.DebugContext(ctx, "ReadWorker done", "client", remoteAddr)
+				slog.DebugContext(ctx, "ReadWorker done", "client", remoteAddr)
 			})
 			wg.Go(func() {
 				WriteWorker(ctx, conn, c)
-				logger.DebugContext(ctx, "WriteWorker done", "client", remoteAddr)
+				slog.DebugContext(ctx, "WriteWorker done", "client", remoteAddr)
 			})
 		}
 	}
@@ -252,19 +230,27 @@ func ClientConnectionWorker(ctx context.Context) {
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
 
+	// Configure colored logging with tint
+	handler := tint.NewHandler(os.Stderr, &tint.Options{
+		Level:      slog.LevelDebug,
+		TimeFormat: "2006-01-02 15:04:05.000",
+		NoColor:    false,
+	})
+	slog.SetDefault(slog.New(handler))
+
+	var wg sync.WaitGroup
 	wg.Go(func() {
-		lib.StdinWorker(ctx, nil)
-		logger.DebugContext(ctx, "StdinWorker done")
+		resplib.ListenStdin(ctx, nil)
+		slog.DebugContext(ctx, "StdinWorker done")
 		cancel()
 	})
 	wg.Go(func() {
 		ClientConnectionWorker(ctx)
-		logger.DebugContext(ctx, "ClientConnectionWorker done")
+		slog.DebugContext(ctx, "ClientConnectionWorker done")
 		cancel()
 	})
-
 	wg.Wait()
-	logger.DebugContext(ctx, "Clean exit")
+
+	slog.DebugContext(ctx, "Clean exit")
 }
