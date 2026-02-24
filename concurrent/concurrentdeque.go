@@ -27,12 +27,7 @@ func NewConcurrentDeque[T any]() *ConcurrentDeque[T] {
 func (q *ConcurrentDeque[T]) PushBack(values ...T) int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-
-	for q.waiters.Len() > 0 && len(values) > 0 {
-		q.waiters.Front().Value.(chan []T) <- values[0:1]
-		q.waiters.Remove(q.waiters.Front())
-		values = values[1:]
-	}
+	defer q.notifyAwaiters(values...)
 
 	// Ensure we have enough space for any items that might end up in the buffer
 	targetCount := q.count + len(values)
@@ -50,16 +45,19 @@ func (q *ConcurrentDeque[T]) PushBack(values ...T) int {
 	return q.count
 }
 
-// PushFront: O(1) amortized
-func (q *ConcurrentDeque[T]) PushFront(values ...T) int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
+func (q *ConcurrentDeque[T]) notifyAwaiters(values ...T) {
 	for q.waiters.Len() > 0 && len(values) > 0 {
 		q.waiters.Front().Value.(chan []T) <- values[0:1]
 		q.waiters.Remove(q.waiters.Front())
 		values = values[1:]
 	}
+}
+
+// PushFront: O(1) amortized
+func (q *ConcurrentDeque[T]) PushFront(values ...T) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	defer q.notifyAwaiters(values...)
 
 	// Ensure we have enough space for any items that might end up in the buffer
 	targetCount := q.count + len(values)
