@@ -213,6 +213,7 @@ func (c blpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest
 	listName := request.Params[1]
 	list := lists.GetOrCreate(listName, concurrent.NewConcurrentDeque[string])
 	response := <-list.PopFrontAsync(time.Duration(timeoutSeconds) * time.Second)
+	response = append([]string{listName}, response...)
 	if len(response) != 0 {
 		request.ResponseChannel <- resplib.SerializeRespArray(response)
 	}
