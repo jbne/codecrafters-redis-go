@@ -107,7 +107,7 @@ func CreateScannerChannel(ctx context.Context, reader io.Reader, splitFunc bufio
 		defer close(in)
 		for scanner.Scan() {
 			line := scanner.Text()
-			slog.DebugContext(ctx, "Scanner read line", "line", line)
+			//slog.DebugContext(ctx, "Scanner read line", "line", line)
 			select {
 			case <-ctx.Done():
 				slog.DebugContext(ctx, "Scanner cancelled by context")
