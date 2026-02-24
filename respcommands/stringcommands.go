@@ -31,7 +31,7 @@ summary:
 ` + "\r\n"
 }
 
-func (c set) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c set) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	tokens := request.Params
 	arrSize := len(tokens)
 	switch {
@@ -41,10 +41,12 @@ func (c set) execute(ctx context.Context, request resplib.RESP2_CommandRequest) 
 
 		// Validate key and value are not empty
 		if key == "" {
-			return "-ERR Key cannot be empty!\r\n"
+			request.ResponseChannel <- "-ERR Key cannot be empty!\r\n"
+			return
 		}
 		if value == "" {
-			return "-ERR Value cannot be empty!\r\n"
+			request.ResponseChannel <- "-ERR Value cannot be empty!\r\n"
+			return
 		}
 
 		expiryDurationMs := 0
@@ -52,25 +54,27 @@ func (c set) execute(ctx context.Context, request resplib.RESP2_CommandRequest) 
 		for i := 3; i < arrSize; i++ {
 			if tokens[i] == "PX" {
 				if i+1 >= arrSize {
-					return "-ERR No expiration specified!\r\n"
-				} else {
-					expiryDurationMs, err = strconv.Atoi(tokens[i+1])
-					if err != nil {
-						return fmt.Sprintf("-ERR Could not convert %s to an int for expiry! Err: %s\r\n", tokens[i+1], err)
-					}
+					request.ResponseChannel <- "-ERR No expiration specified!\r\n"
+					return
+				}
+
+				expiryDurationMs, err = strconv.Atoi(tokens[i+1])
+				if err != nil {
+					request.ResponseChannel <- fmt.Sprintf("-ERR Could not convert %s to an int for expiry! Err: %s\r\n", tokens[i+1], err)
+					return
 				}
 			}
 		}
 
 		cache.Set(key, value, time.Duration(expiryDurationMs)*time.Millisecond)
 
-		return "+OK\r\n"
+		request.ResponseChannel <- "+OK\r\n"
 	case arrSize == 2:
-		return fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1])
+		request.ResponseChannel <- fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1])
 	case arrSize == 1:
-		return "-ERR No key given!\r\n"
+		request.ResponseChannel <- "-ERR No key given!\r\n"
 	default:
-		return "-ERR SET command accepts at most 2 arguments (key and value) plus optional PX expiry!\r\n"
+		request.ResponseChannel <- "-ERR SET command accepts at most 2 arguments (key and value) plus optional PX expiry!\r\n"
 	}
 }
 
@@ -84,18 +88,20 @@ summary:
 ` + "\r\n"
 }
 
-func (c get) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c get) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	if len(request.Params) < 2 {
-		return "-ERR No key provided to GET!\r\n"
+		request.ResponseChannel <- "-ERR No key provided to GET!\r\n"
+		return
 	}
 	key := request.Params[1]
 	response, ok := cache.Get(key)
 
 	if ok {
 		slog.DebugContext(ctx, "GET cache hit", "key", key)
-		return fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+		request.ResponseChannel <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+		return
 	}
 
 	slog.DebugContext(ctx, "GET cache miss", "key", key)
-	return "$-1\r\n"
+	request.ResponseChannel <- "$-1\r\n"
 }

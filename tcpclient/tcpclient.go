@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"os"
 	"sync"
 
+	"github.com/codecrafters-io/redis-starter-go/logger"
 	"github.com/codecrafters-io/redis-starter-go/resplib"
-	"github.com/lmittmann/tint"
 )
 
 func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
@@ -63,15 +62,8 @@ func ReadWorker(ctx context.Context, in <-chan string) {
 }
 
 func main() {
+	slog.SetDefault(slog.New(logger.NewHandler()))
 	ctx, cancel := context.WithCancel(context.Background())
-
-	// Configure colored logging with tint
-	handler := tint.NewHandler(os.Stderr, &tint.Options{
-		Level:      slog.LevelDebug,
-		TimeFormat: "2006-01-02 15:04:05.000",
-		NoColor:    false,
-	})
-	slog.SetDefault(slog.New(handler))
 
 	network := "tcp4"
 	address := "localhost"

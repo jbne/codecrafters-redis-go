@@ -26,8 +26,8 @@ summary:
 ` + "\r\n"
 }
 
-func (c ping) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
-	return "+PONG\r\n"
+func (c ping) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
+	request.ResponseChannel <- "+PONG\r\n"
 }
 
 func (c echo) getUsage(ctx context.Context) string {
@@ -39,11 +39,12 @@ summary:
 ` + "\r\n"
 }
 
-func (c echo) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c echo) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	if len(request.Params) != 2 {
-		return fmt.Sprintf("-ERR Unexpected number of params! %s", c.getUsage(ctx))
+		request.ResponseChannel <- fmt.Sprintf("-ERR Unexpected number of params! %s", c.getUsage(ctx))
+		return
 	}
 
 	response := request.Params[1]
-	return fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+	request.ResponseChannel <- fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
 }

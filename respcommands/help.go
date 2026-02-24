@@ -25,15 +25,17 @@ summary:
 ` + "\r\n"
 }
 
-func (c help) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c help) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	if len(request.Params) != 2 {
-		return c.getUsage(ctx)
+		request.ResponseChannel <- c.getUsage(ctx)
+		return
 	}
 
 	command, exists := resp2_Commands_Map[request.Params[1]]
 	if !exists {
-		return fmt.Sprintf("Command '%s' is not supported", request.Params[1])
+		request.ResponseChannel <- fmt.Sprintf("Command '%s' is not supported", request.Params[1])
+		return
 	}
 
-	return command.getUsage(ctx)
+	request.ResponseChannel <- command.getUsage(ctx)
 }

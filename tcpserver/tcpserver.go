@@ -6,15 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/codecrafters-io/redis-starter-go/logger"
 	"github.com/codecrafters-io/redis-starter-go/respcommands"
 	"github.com/codecrafters-io/redis-starter-go/resplib"
-	"github.com/lmittmann/tint"
 )
 
 type (
@@ -108,23 +107,25 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 	}
 
 	in, ctx := resplib.CreateScannerChannel(ctx, conn, resplib.ScanCRLF)
+	requestId := 0
 	for {
 		select {
 		case <-ctx.Done():
-			slog.DebugContext(ctx, "ReadWorker context cancelled", "client", remoteAddr)
+			slog.DebugContext(ctx, "ReadWorker context cancelled")
 			return // Exit when server is shutting down
 		default:
 		}
 
+		ctx := context.WithValue(ctx, logger.RequestIdKey, requestId)
 		commandArray := ParseArray(in, HandleError)
 
 		if err {
-			slog.DebugContext(ctx, "ReadWorker exiting due to protocol error", "client", remoteAddr)
+			slog.DebugContext(ctx, "ReadWorker exiting due to protocol error")
 			return
 		}
 
 		if len(commandArray) == 0 {
-			slog.DebugContext(ctx, "ReadWorker exiting - client disconnected", "client", remoteAddr)
+			slog.DebugContext(ctx, "ReadWorker exiting - client disconnected")
 			return // EOF - client disconnected cleanly
 		}
 
@@ -132,37 +133,37 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 			Params:          commandArray,
 			ResponseChannel: c,
 		})
+		requestId++
 	}
 }
 
 func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 	defer conn.Close()
-	remoteAddr := conn.RemoteAddr()
-	slog.DebugContext(ctx, "WriteWorker started", "client", remoteAddr)
+	slog.DebugContext(ctx, "WriteWorker started")
 	writer := bufio.NewWriter(conn)
 	for {
 		select {
 		case <-ctx.Done():
-			slog.DebugContext(ctx, "WriteWorker context cancelled", "client", remoteAddr)
+			slog.DebugContext(ctx, "WriteWorker context cancelled")
 			return
 		case str, ok := <-in:
 			if !ok {
-				slog.DebugContext(ctx, "WriteWorker exiting - response channel closed", "client", remoteAddr)
+				slog.DebugContext(ctx, "WriteWorker exiting - response channel closed")
 				return // Channel closed by ReadWorker
 			}
 
 			_, err := writer.WriteString(str)
 			if strings.HasPrefix(str, "-ERRTERM") {
-				slog.DebugContext(ctx, "WriteWorker exiting - terminating error sent", "client", remoteAddr)
+				slog.DebugContext(ctx, "WriteWorker exiting - terminating error sent")
 				return
 			}
 
 			if err != nil {
-				slog.ErrorContext(ctx, "Connection lost", "client", remoteAddr, "error", err)
+				slog.ErrorContext(ctx, "Connection lost", "error", err)
 				break
 			}
 
-			slog.DebugContext(ctx, "Response sent", "client", remoteAddr, "response", str)
+			slog.DebugContext(ctx, "Response sent", "response", str)
 			writer.Flush()
 		}
 	}
@@ -206,6 +207,7 @@ func ClientConnectionWorker(ctx context.Context) {
 		}
 	})
 
+	clientId := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -213,31 +215,26 @@ func ClientConnectionWorker(ctx context.Context) {
 			cancel()
 			return
 		case conn := <-in:
-			c := make(chan string)
 			remoteAddr := conn.RemoteAddr()
+			ctx := context.WithValue(ctx, logger.ClientIdKey, clientId)
+			c := make(chan string)
 			slog.InfoContext(ctx, "Client connected", "client", remoteAddr)
 			wg.Go(func() {
 				ReadWorker(ctx, conn, c)
-				slog.DebugContext(ctx, "ReadWorker done", "client", remoteAddr)
+				slog.DebugContext(ctx, "ReadWorker done")
 			})
 			wg.Go(func() {
 				WriteWorker(ctx, conn, c)
-				slog.DebugContext(ctx, "WriteWorker done", "client", remoteAddr)
+				slog.DebugContext(ctx, "WriteWorker done")
 			})
+			clientId++
 		}
 	}
 }
 
 func main() {
+	slog.SetDefault(slog.New(logger.NewHandler()))
 	ctx, cancel := context.WithCancel(context.Background())
-
-	// Configure colored logging with tint
-	handler := tint.NewHandler(os.Stderr, &tint.Options{
-		Level:      slog.LevelDebug,
-		TimeFormat: "2006-01-02 15:04:05.000",
-		NoColor:    false,
-	})
-	slog.SetDefault(slog.New(handler))
 
 	var wg sync.WaitGroup
 	wg.Go(func() {

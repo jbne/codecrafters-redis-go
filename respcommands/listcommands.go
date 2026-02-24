@@ -34,15 +34,16 @@ summary:
 ` + "\r\n"
 }
 
-func (c rpush) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c rpush) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	if len(request.Params) < 3 {
-		return fmt.Sprintf("-ERR RPUSH requires key and at least one element! %s", c.getUsage(ctx))
+		request.ResponseChannel <- fmt.Sprintf("-ERR RPUSH requires key and at least one element! %s", c.getUsage(ctx))
+		return
 	}
 
 	listName := request.Params[1]
 	list := lists.GetOrCreate(listName, concurrent.NewConcurrentDeque[string])
 	newLen := list.PushBack(request.Params[2:]...)
-	return fmt.Sprintf(":%d\r\n", newLen)
+	request.ResponseChannel <- fmt.Sprintf(":%d\r\n", newLen)
 }
 
 func (c lrange) getUsage(ctx context.Context) string {
@@ -63,28 +64,32 @@ summary:
 ` + "\r\n"
 }
 
-func (c lrange) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c lrange) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	if len(request.Params) != 4 {
-		return fmt.Sprintf("-ERR LRANGE key, start, and stop! %s", c.getUsage(ctx))
+		request.ResponseChannel <- fmt.Sprintf("-ERR LRANGE key, start, and stop! %s", c.getUsage(ctx))
+		return
 	}
 
 	startIndex, err := strconv.Atoi(request.Params[2])
 	if err != nil {
-		return fmt.Sprintf("-ERR Start index '%s' could not be converted to int! Err: %s\r\n", request.Params[2], err)
+		request.ResponseChannel <- fmt.Sprintf("-ERR Start index '%s' could not be converted to int! Err: %s\r\n", request.Params[2], err)
+		return
 	}
 
 	stopIndex, err := strconv.Atoi(request.Params[3])
 	if err != nil {
-		return fmt.Sprintf("-ERR Stop index '%s' could not be converted to int! Err: %s\r\n", request.Params[3], err)
+		request.ResponseChannel <- fmt.Sprintf("-ERR Stop index '%s' could not be converted to int! Err: %s\r\n", request.Params[3], err)
+		return
 	}
 
 	listName := request.Params[1]
 	list, exists := lists.Get(listName)
 	if !exists {
-		return "*0\r\n"
+		request.ResponseChannel <- "*0\r\n"
+		return
 	}
 
-	return resplib.SerializeRespArray(list.GetRange(startIndex, stopIndex))
+	request.ResponseChannel <- resplib.SerializeRespArray(list.GetRange(startIndex, stopIndex))
 }
 
 func (c lpush) getUsage(ctx context.Context) string {
@@ -98,15 +103,16 @@ summary:
 ` + "\r\n"
 }
 
-func (c lpush) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c lpush) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	if len(request.Params) < 3 {
-		return fmt.Sprintf("-ERR LPUSH requires key and at least one element! %s", c.getUsage(ctx))
+		request.ResponseChannel <- fmt.Sprintf("-ERR LPUSH requires key and at least one element! %s", c.getUsage(ctx))
+		return
 	}
 
 	listName := request.Params[1]
 	list := lists.GetOrCreate(listName, concurrent.NewConcurrentDeque[string])
 	newLen := list.PushFront(request.Params[2:]...)
-	return fmt.Sprintf(":%d\r\n", newLen)
+	request.ResponseChannel <- fmt.Sprintf(":%d\r\n", newLen)
 }
 
 func (c llen) getUsage(ctx context.Context) string {
@@ -120,18 +126,20 @@ summary:
 ` + "\r\n"
 }
 
-func (c llen) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c llen) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	if len(request.Params) != 2 {
-		return fmt.Sprintf("-ERR LLEN requires key! %s", c.getUsage(ctx))
+		request.ResponseChannel <- fmt.Sprintf("-ERR LLEN requires key! %s", c.getUsage(ctx))
+		return
 	}
 
 	listName := request.Params[1]
 	list, exists := lists.Get(listName)
 	if !exists {
-		return "-ERR List does not exist!\r\n"
+		request.ResponseChannel <- "-ERR List does not exist!\r\n"
+		return
 	}
 
-	return fmt.Sprintf(":%d\r\n", list.Len())
+	request.ResponseChannel <- fmt.Sprintf(":%d\r\n", list.Len())
 }
 
 func (c lpop) getUsage(ctx context.Context) string {
@@ -145,10 +153,11 @@ summary:
 ` + "\r\n"
 }
 
-func (c lpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c lpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	paramLen := len(request.Params)
 	if paramLen < 2 || paramLen > 3 {
-		return "-ERR LPOP requires 2 or 3 arguments!\r\n"
+		request.ResponseChannel <- "-ERR LPOP requires 2 or 3 arguments!\r\n"
+		return
 	}
 
 	count := 1
@@ -156,20 +165,23 @@ func (c lpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest)
 		var err error
 		count, err = strconv.Atoi(request.Params[2])
 		if err != nil {
-			return fmt.Sprintf("-ERR Could not convert '%s' to an int for count! Err: %s\r\n", request.Params[2], err)
+			request.ResponseChannel <- fmt.Sprintf("-ERR Could not convert '%s' to an int for count! Err: %s\r\n", request.Params[2], err)
+			return
 		}
 	}
 
 	if count < 1 {
-		return "-ERR Count must be a positive integer!\r\n"
+		request.ResponseChannel <- "-ERR Count must be a positive integer!\r\n"
+		return
 	}
 
 	listName := request.Params[1]
 	if list, exists := lists.Get(listName); exists {
-		return resplib.SerializeRespArray(list.PopFront(count))
+		request.ResponseChannel <- resplib.SerializeRespArray(list.PopFront(count))
+		return
 	}
 
-	return "$-1\r\n"
+	request.ResponseChannel <- "$-1\r\n"
 }
 
 func (c blpop) getUsage(ctx context.Context) string {
@@ -185,18 +197,23 @@ summary:
 ` + "\r\n"
 }
 
-func (c blpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse {
+func (c blpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest) {
 	paramLen := len(request.Params)
 	if paramLen != 3 {
-		return "-ERR BLPOP requires 3 arguments!\r\n"
+		request.ResponseChannel <- "-ERR BLPOP requires 3 arguments!\r\n"
+		return
 	}
 
 	timeoutSeconds, err := strconv.Atoi(request.Params[2])
 	if err != nil {
-		return fmt.Sprintf("-ERR Could not convert '%s' to an int for timeoutSeconds! Err: %s\r\n", request.Params[2], err)
+		request.ResponseChannel <- fmt.Sprintf("-ERR Could not convert '%s' to an int for timeoutSeconds! Err: %s\r\n", request.Params[2], err)
+		return
 	}
 
 	listName := request.Params[1]
 	list := lists.GetOrCreate(listName, concurrent.NewConcurrentDeque[string])
-	return resplib.SerializeRespArray(<-list.PopFrontAsync(time.Duration(timeoutSeconds) * time.Second))
+	response := <-list.PopFrontAsync(time.Duration(timeoutSeconds) * time.Second)
+	if len(response) != 0 {
+		request.ResponseChannel <- resplib.SerializeRespArray(response)
+	}
 }

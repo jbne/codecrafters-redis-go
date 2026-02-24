@@ -12,7 +12,7 @@ import (
 type (
 	resp2_CommandInterface interface {
 		getUsage(context.Context) string
-		execute(context.Context, resplib.RESP2_CommandRequest) resplib.RESP2_CommandResponse
+		execute(context.Context, resplib.RESP2_CommandRequest)
 	}
 )
 
@@ -59,5 +59,5 @@ func ExecuteCommand(ctx context.Context, request resplib.RESP2_CommandRequest) {
 		return
 	}
 
-	request.ResponseChannel <- entry.execute(ctx, request)
+	entry.execute(ctx, request)
 }
