@@ -177,7 +177,13 @@ func (c lpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest)
 
 	listName := request.Params[1]
 	if list, exists := lists.Get(listName); exists {
-		request.ResponseChannel <- resplib.SerializeRespArray(list.PopFront(count))
+		result := list.PopFront(count)
+		if count == 1 {
+			request.ResponseChannel <- fmt.Sprintf("$%d\r\n%s\r\n", len(result[0]), result[0])
+			return
+		}
+
+		request.ResponseChannel <- resplib.SerializeRespArray(result)
 		return
 	}
 
