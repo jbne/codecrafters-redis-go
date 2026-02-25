@@ -121,7 +121,7 @@ func (q *ConcurrentDeque[T]) GetRange(startIndex int, stopIndex int) []T {
 
 	// Return nil if the range is inverted
 	if startIndex > stopIndex {
-		return nil
+		return []T{}
 	}
 
 	// Create the result slice
