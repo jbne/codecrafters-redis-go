@@ -135,7 +135,7 @@ func (c llen) execute(ctx context.Context, request resplib.RESP2_CommandRequest)
 	listName := request.Params[1]
 	list, exists := lists.Get(listName)
 	if !exists {
-		request.ResponseChannel <- "$-1\r\n"
+		request.ResponseChannel <- ":0\r\n"
 		return
 	}
 
