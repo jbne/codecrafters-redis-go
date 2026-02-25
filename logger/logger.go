@@ -26,6 +26,7 @@ func NewHandler() *MyHandler {
 			Level:      slog.LevelDebug,
 			TimeFormat: "2006-01-02 15:04:05.000",
 			NoColor:    false,
+			AddSource:  true,
 		}),
 	}
 }
