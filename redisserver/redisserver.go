@@ -117,8 +117,9 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 		}
 
 		ctx := context.WithValue(ctx, logger.RequestIdKey, requestId)
-		commandArray := ParseArray(in, HandleError)
+		requestId++
 
+		commandArray := ParseArray(in, HandleError)
 		if err {
 			slog.DebugContext(ctx, "ReadWorker exiting due to protocol error")
 			return
@@ -129,11 +130,12 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 			return // EOF - client disconnected cleanly
 		}
 
-		respcommands.ExecuteCommand(ctx, resplib.RESP2_CommandRequest{
-			Params:          commandArray,
-			ResponseChannel: c,
-		})
-		requestId++
+		go func() {
+			respcommands.ExecuteCommand(ctx, resplib.RESP2_CommandRequest{
+				Params:          commandArray,
+				ResponseChannel: c,
+			})
+		}()
 	}
 }
 

@@ -69,12 +69,12 @@ func assertPopFrontAsync(timeout time.Duration, expected ...any) Assertion {
 		})
 
 		for i, e := range expected {
-			c := q.PopFrontAsync(timeout)
 			wg.Go(func() {
 				select {
 				case <-ctx.Done():
 					t.Errorf("i: %d, Cancelled PopFrontAsync due to timeout! Expected: %v, timeout: %v", i, e, timeout)
-				case actual := <-c:
+				default:
+					actual := q.PopFrontAsync()
 					if len(actual) != 1 || actual[0] != e {
 						t.Errorf("i: %d, PopFrontAsync() = %v; Expected: %v, timeout: %v", i, actual, e, timeout)
 					}
@@ -126,6 +126,7 @@ func TestConcurrentDeque(t *testing.T) {
 			name: "Blocking pop",
 			steps: []Assertion{
 				assertPopFrontAsync(10*time.Millisecond, "1", "2", "3", "4", "5", "6", "7"),
+				assertLen(7),
 			},
 		},
 	}

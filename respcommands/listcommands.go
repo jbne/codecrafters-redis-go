@@ -3,6 +3,7 @@ package respcommands
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -210,17 +211,34 @@ func (c blpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest
 		return
 	}
 
-	timeoutSeconds, err := strconv.Atoi(request.Params[2])
+	timeoutSeconds, err := strconv.ParseFloat(request.Params[2], 32)
 	if err != nil {
-		request.ResponseChannel <- fmt.Sprintf("-ERR Could not convert '%s' to an int for timeoutSeconds! Err: %s\r\n", request.Params[2], err)
+		request.ResponseChannel <- fmt.Sprintf("-ERR Could not convert '%s' to a float for timeoutSeconds! Err: %s\r\n", request.Params[2], err)
 		return
+	}
+	if timeoutSeconds < 0 {
+		request.ResponseChannel <- "-ERR TimeoutSeconds must be a non-negative integer!\r\n"
+		return
+	}
+
+	var cancel context.CancelFunc
+	if timeoutSeconds > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSeconds * 1000)*time.Millisecond)
+		defer cancel()
 	}
 
 	listName := request.Params[1]
 	list := lists.GetOrCreate(listName, concurrent.NewConcurrentDeque[string])
-	response := <-list.PopFrontAsync(time.Duration(timeoutSeconds) * time.Second)
-	response = append([]string{listName}, response...)
-	if len(response) != 0 {
-		request.ResponseChannel <- resplib.SerializeRespArray(response)
+	err, result := list.PopFrontAsync(ctx)
+
+	if err != nil {
+		slog.DebugContext(ctx, "BLPOP error occurred", "listName", listName, "error", err)
+		if err == context.DeadlineExceeded {
+			request.ResponseChannel <- "*-1\r\n"
+		}
+		return
 	}
+
+	result = append([]string{listName}, result...)
+	request.ResponseChannel <- resplib.SerializeRespArray(result)
 }

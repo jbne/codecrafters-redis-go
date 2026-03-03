@@ -1,33 +1,33 @@
 package concurrent
 
 import (
-	"container/list"
+	"context"
+	"fmt"
 	"sync"
-	"time"
 )
 
 type (
 	ConcurrentDeque[T any] struct {
-		mu      sync.RWMutex
-		buf     []T
-		head    int
-		tail    int
-		count   int
-		waiters list.List
+		mu     sync.Mutex
+		buf    []T
+		head   int
+		tail   int
+		count  int
+		waiter chan struct{}
 	}
 )
 
 func NewConcurrentDeque[T any]() *ConcurrentDeque[T] {
-	return &ConcurrentDeque[T]{
+	q := &ConcurrentDeque[T]{
 		buf: make([]T, 16), // Start with a small power-of-two capacity
 	}
+	return q
 }
 
 // PushBack: O(1) amortized
 func (q *ConcurrentDeque[T]) PushBack(values ...T) int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	defer q.notifyAwaiters(values...)
 
 	// Ensure we have enough space for any items that might end up in the buffer
 	targetCount := q.count + len(values)
@@ -42,22 +42,17 @@ func (q *ConcurrentDeque[T]) PushBack(values ...T) int {
 		q.count++
 	}
 
-	return q.count
-}
-
-func (q *ConcurrentDeque[T]) notifyAwaiters(values ...T) {
-	for q.waiters.Len() > 0 && len(values) > 0 {
-		q.waiters.Front().Value.(chan []T) <- values[0:1]
-		q.waiters.Remove(q.waiters.Front())
-		values = values[1:]
+	if q.waiter != nil {
+		close(q.waiter)
 	}
+
+	return q.count
 }
 
 // PushFront: O(1) amortized
 func (q *ConcurrentDeque[T]) PushFront(values ...T) int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	defer q.notifyAwaiters(values...)
 
 	// Ensure we have enough space for any items that might end up in the buffer
 	targetCount := q.count + len(values)
@@ -72,6 +67,10 @@ func (q *ConcurrentDeque[T]) PushFront(values ...T) int {
 		q.count++
 	}
 
+	if q.waiter != nil {
+		close(q.waiter)
+	}
+
 	return q.count
 }
 
@@ -82,26 +81,44 @@ func (q *ConcurrentDeque[T]) PopFront(n int) []T {
 	return q.popFrontNoLock(n)
 }
 
-func (q *ConcurrentDeque[T]) PopFrontAsync(timeout time.Duration) <-chan []T {
-	waiter := make(chan []T, 1)
-
+func (q *ConcurrentDeque[T]) PopFrontAsync(ctx context.Context) (error, []T) {
 	q.mu.Lock()
+
 	if q.count > 0 {
-		val := q.popFrontNoLock(1)
+		res := q.popFrontNoLock(1)
 		q.mu.Unlock()
-		waiter <- val
-		return waiter
+		return nil, res
 	}
 
-	q.waiters.PushBack(waiter)
+	if q.waiter != nil {
+		q.mu.Unlock()
+		return fmt.Errorf("already waiting"), nil
+	}
+
+	q.waiter = make(chan struct{})
 	q.mu.Unlock()
 
-	return waiter
+	select {
+	case <-ctx.Done():
+		q.mu.Lock()
+		if q.waiter != nil {
+			close(q.waiter)
+			q.waiter = nil
+		}
+		q.mu.Unlock()
+		return ctx.Err(), nil
+	case <-q.waiter:
+		q.mu.Lock()
+		res := q.popFrontNoLock(1)
+		q.waiter = nil
+		q.mu.Unlock()
+		return nil, res
+	}
 }
 
 func (q *ConcurrentDeque[T]) GetRange(startIndex int, stopIndex int) []T {
-	q.mu.RLock()
-	defer q.mu.RUnlock()
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
 	if q.count == 0 {
 		return nil
@@ -140,8 +157,8 @@ func (q *ConcurrentDeque[T]) GetRange(startIndex int, stopIndex int) []T {
 }
 
 func (q *ConcurrentDeque[T]) Len() int {
-	q.mu.RLock()
-	defer q.mu.RUnlock()
+	q.mu.Lock()
+	defer q.mu.Unlock()
 	return q.count
 }
 
