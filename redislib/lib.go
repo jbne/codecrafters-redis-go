@@ -1,4 +1,4 @@
-package resplib
+package redislib
 
 import (
 	"bufio"

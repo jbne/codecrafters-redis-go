@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/codecrafters-io/redis-starter-go/logger"
-	"github.com/codecrafters-io/redis-starter-go/resplib"
+	"github.com/codecrafters-io/redis-starter-go/redislib"
 )
 
 func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
@@ -20,7 +20,7 @@ func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 			slog.DebugContext(ctx, "WriteWorker context cancelled")
 			return
 		case input := <-in:
-			tokens := resplib.TokenizeCommandLine(input)
+			tokens := redislib.TokenizeCommandLine(input)
 			if len(tokens) == 0 {
 				slog.WarnContext(ctx, "No tokens parsed from input", "input", input)
 				continue
@@ -85,7 +85,7 @@ func main() {
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		resplib.ListenStdin(ctx, commandChannel)
+		redislib.ListenStdin(ctx, commandChannel)
 		slog.DebugContext(ctx, "StdinWorker done")
 		cancel()
 	})
@@ -95,7 +95,7 @@ func main() {
 		cancel()
 	})
 	wg.Go(func() {
-		in, ctx := resplib.CreateScannerChannel(ctx, conn, resplib.ScanCRLF)
+		in, ctx := redislib.CreateScannerChannel(ctx, conn, redislib.ScanCRLF)
 		ReadWorker(ctx, in)
 		slog.DebugContext(ctx, "ReadWorker done")
 		cancel()

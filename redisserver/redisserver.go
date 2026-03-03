@@ -12,16 +12,11 @@ import (
 	"sync"
 
 	"github.com/codecrafters-io/redis-starter-go/logger"
-	"github.com/codecrafters-io/redis-starter-go/respcommands"
-	"github.com/codecrafters-io/redis-starter-go/resplib"
+	"github.com/codecrafters-io/redis-starter-go/redislib"
+	"github.com/codecrafters-io/redis-starter-go/redisserverlib"
 )
 
-type (
-	Scan         func() string
-	ErrorHandler func(string, bool)
-)
-
-func ParseArray(ctx context.Context, scan <-chan string, c chan string) <-chan resplib.RESP2_Array {
+func ParseArray(ctx context.Context, scan <-chan string, c chan string) <-chan redislib.RESP2_Array {
 	handleError := func(str string, terminate bool) {
 		_, file, line, _ := runtime.Caller(1)
 		slog.ErrorContext(ctx, "Protocol error", "file", file, "line", line, "error", str)
@@ -31,7 +26,7 @@ func ParseArray(ctx context.Context, scan <-chan string, c chan string) <-chan r
 		}
 		c <- fmt.Sprintf("%s %s\r\n", prefix, str)
 	}
-	ch := make(chan resplib.RESP2_Array)
+	ch := make(chan redislib.RESP2_Array)
 	go func() {
 		line, ok := <-scan
 		if !ok {
@@ -56,7 +51,7 @@ func ParseArray(ctx context.Context, scan <-chan string, c chan string) <-chan r
 			return
 		}
 
-		ret := make(resplib.RESP2_Array, 0, arrSize)
+		ret := make(redislib.RESP2_Array, 0, arrSize)
 		for range arrSize {
 			line, ok = <-scan
 			if !ok {
@@ -101,14 +96,14 @@ func ParseArray(ctx context.Context, scan <-chan string, c chan string) <-chan r
 	return ch
 }
 
-func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
+func ReadWorker(ctx context.Context, conn net.Conn, c chan string, commandProcessor redisserverlib.RedisCommandProcessor) {
 	defer close(c)
 	remoteAddr := conn.RemoteAddr()
 	slog.DebugContext(ctx, "ReadWorker started", "client", remoteAddr)
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	in, ctx := resplib.CreateScannerChannel(ctx, conn, resplib.ScanCRLF)
+	in, ctx := redislib.CreateScannerChannel(ctx, conn, redislib.ScanCRLF)
 	requestId := 0
 	for {
 		ctx := context.WithValue(ctx, logger.RequestIdKey, requestId)
@@ -125,10 +120,10 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 			}
 
 			wg.Go(func() {
-				respcommands.ExecuteCommand(ctx, resplib.RESP2_CommandRequest{
-					Params:          commandArray,
-					ResponseChannel: c,
-				})
+				result := commandProcessor.ExecuteCommand(ctx, commandArray)
+				if result != "" {
+					c <- result
+				}
 			})
 		}
 	}
@@ -166,7 +161,7 @@ func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 	}
 }
 
-func ClientConnectionWorker(ctx context.Context) {
+func ListenConn(ctx context.Context) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -183,6 +178,8 @@ func ClientConnectionWorker(ctx context.Context) {
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
+
+	commandProcessor := redisserverlib.NewRedisCommandProcessor()
 
 	defer listener.Close()
 	in := make(chan net.Conn)
@@ -217,7 +214,7 @@ func ClientConnectionWorker(ctx context.Context) {
 			c := make(chan string)
 			slog.InfoContext(ctx, "Client connected", "client", remoteAddr)
 			wg.Go(func() {
-				ReadWorker(ctx, conn, c)
+				ReadWorker(ctx, conn, c, commandProcessor)
 				slog.DebugContext(ctx, "ReadWorker done")
 			})
 			wg.Go(func() {
@@ -235,13 +232,13 @@ func main() {
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		resplib.ListenStdin(ctx, nil)
+		redislib.ListenStdin(ctx, nil)
 		slog.DebugContext(ctx, "StdinWorker done")
 		cancel()
 	})
 	wg.Go(func() {
-		ClientConnectionWorker(ctx)
-		slog.DebugContext(ctx, "ClientConnectionWorker done")
+		ListenConn(ctx)
+		slog.DebugContext(ctx, "ListenConn done")
 		cancel()
 	})
 	wg.Wait()
