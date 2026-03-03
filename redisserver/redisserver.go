@@ -21,72 +21,84 @@ type (
 	ErrorHandler func(string, bool)
 )
 
-func ParseArray(scan <-chan string, handleError ErrorHandler) resplib.RESP2_Array {
-	line, ok := <-scan
-	if !ok {
-		return nil // Channel closed - client disconnected
+func ParseArray(ctx context.Context, scan <-chan string, c chan string) <-chan resplib.RESP2_Array {
+	handleError := func(str string, terminate bool) {
+		_, file, line, _ := runtime.Caller(1)
+		slog.ErrorContext(ctx, "Protocol error", "file", file, "line", line, "error", str)
+		prefix := "-ERR"
+		if terminate {
+			prefix += "TERM"
+		}
+		c <- fmt.Sprintf("%s %s\r\n", prefix, str)
 	}
-	if line == "" {
-		return nil // EOF or empty line - return silently
-	}
-	if !strings.HasPrefix(line, "*") {
-		handleError("ParseArray called on non-array!", true)
-		return nil
-	}
-
-	arrSize, err := strconv.Atoi(line[1:])
-	if err != nil {
-		handleError(fmt.Sprintf("Could not extract array size! Error: %v", err), true)
-		return nil
-	}
-
-	if arrSize < 0 {
-		handleError("Array size cannot be negative", true)
-		return nil
-	}
-
-	ret := make(resplib.RESP2_Array, 0, arrSize)
-	for range arrSize {
-		line, ok = <-scan
+	ch := make(chan resplib.RESP2_Array)
+	go func() {
+		line, ok := <-scan
 		if !ok {
-			handleError("Channel closed while parsing array element", true)
-			return nil
+			return // Channel closed - client disconnected
 		}
 		if line == "" {
-			handleError("Unexpected empty line while parsing array element", true)
-			return nil
+			return // EOF or empty line - return silently
 		}
-		if line[0] != '$' {
-			handleError(fmt.Sprintf("Expected bulk string marker '$', got %q", line), true)
-			return nil
+		if !strings.HasPrefix(line, "*") {
+			handleError("ParseArray called on non-array!", true)
+			return
 		}
 
-		// Parse the bulk string length
-		bulkLen, err := strconv.Atoi(line[1:])
+		arrSize, err := strconv.Atoi(line[1:])
 		if err != nil {
-			handleError(fmt.Sprintf("Invalid bulk string length: %v", err), true)
-			return nil
+			handleError(fmt.Sprintf("Could not extract array size! Error: %v", err), true)
+			return
 		}
 
-		if bulkLen < 0 {
-			handleError("Bulk string length cannot be negative", true)
-			return nil
+		if arrSize < 0 {
+			handleError("Array size cannot be negative", true)
+			return
 		}
 
-		// Read the actual bulk string data
-		data, ok := <-scan
-		if !ok {
-			handleError("Channel closed while reading bulk string data", true)
-			return nil
-		}
-		if len(data) != bulkLen {
-			handleError(fmt.Sprintf("Bulk string length mismatch: expected %d bytes, got %d", bulkLen, len(data)), true)
-			return nil
-		}
-		ret = append(ret, data)
-	}
+		ret := make(resplib.RESP2_Array, 0, arrSize)
+		for range arrSize {
+			line, ok = <-scan
+			if !ok {
+				handleError("Channel closed while parsing array element", true)
+				return
+			}
+			if line == "" {
+				handleError("Unexpected empty line while parsing array element", true)
+				return
+			}
+			if line[0] != '$' {
+				handleError(fmt.Sprintf("Expected bulk string marker '$', got %q", line), true)
+				return
+			}
 
-	return ret
+			// Parse the bulk string length
+			bulkLen, err := strconv.Atoi(line[1:])
+			if err != nil {
+				handleError(fmt.Sprintf("Invalid bulk string length: %v", err), true)
+				return
+			}
+
+			if bulkLen < 0 {
+				handleError("Bulk string length cannot be negative", true)
+				return
+			}
+
+			// Read the actual bulk string data
+			data, ok := <-scan
+			if !ok {
+				handleError("Channel closed while reading bulk string data", true)
+				return
+			}
+			if len(data) != bulkLen {
+				handleError(fmt.Sprintf("Bulk string length mismatch: expected %d bytes, got %d", bulkLen, len(data)), true)
+				return
+			}
+			ret = append(ret, data)
+		}
+		ch <- ret
+	}()
+	return ch
 }
 
 func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
@@ -94,48 +106,31 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string) {
 	remoteAddr := conn.RemoteAddr()
 	slog.DebugContext(ctx, "ReadWorker started", "client", remoteAddr)
 
-	err := false
-	HandleError := func(str string, terminate bool) {
-		_, file, line, _ := runtime.Caller(1)
-		slog.ErrorContext(ctx, "Protocol error", "file", file, "line", line, "error", str)
-		prefix := "-ERR"
-		if terminate {
-			err = true
-			prefix += "TERM"
-		}
-		c <- fmt.Sprintf("%s %s\r\n", prefix, str)
-	}
-
+	var wg sync.WaitGroup
+	defer wg.Wait()
 	in, ctx := resplib.CreateScannerChannel(ctx, conn, resplib.ScanCRLF)
 	requestId := 0
 	for {
-		select {
-		case <-ctx.Done():
-			slog.DebugContext(ctx, "ReadWorker context cancelled")
-			return // Exit when server is shutting down
-		default:
-		}
-
 		ctx := context.WithValue(ctx, logger.RequestIdKey, requestId)
 		requestId++
 
-		commandArray := ParseArray(in, HandleError)
-		if err {
-			slog.DebugContext(ctx, "ReadWorker exiting due to protocol error")
+		select {
+		case <-ctx.Done():
+			slog.DebugContext(ctx, "ReadWorker context cancelled")
 			return
-		}
+		case commandArray, ok := <-ParseArray(ctx, in, c):
+			if !ok {
+				slog.DebugContext(ctx, "ReadWorker exiting due to protocol error")
+				return
+			}
 
-		if len(commandArray) == 0 {
-			slog.DebugContext(ctx, "ReadWorker exiting - client disconnected")
-			return // EOF - client disconnected cleanly
-		}
-
-		go func() {
-			respcommands.ExecuteCommand(ctx, resplib.RESP2_CommandRequest{
-				Params:          commandArray,
-				ResponseChannel: c,
+			wg.Go(func() {
+				respcommands.ExecuteCommand(ctx, resplib.RESP2_CommandRequest{
+					Params:          commandArray,
+					ResponseChannel: c,
+				})
 			})
-		}()
+		}
 	}
 }
 

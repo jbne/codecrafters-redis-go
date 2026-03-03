@@ -223,7 +223,7 @@ func (c blpop) execute(ctx context.Context, request resplib.RESP2_CommandRequest
 
 	var cancel context.CancelFunc
 	if timeoutSeconds > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSeconds * 1000)*time.Millisecond)
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSeconds*1000)*time.Millisecond)
 		defer cancel()
 	}
 

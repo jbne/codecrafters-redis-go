@@ -63,10 +63,8 @@ func assertPopFrontAsync(timeout time.Duration, expected ...any) Assertion {
 	return func(i int, t *testing.T, q *concurrent.ConcurrentDeque[any]) {
 		var wg sync.WaitGroup
 
-		ctx, cancel := context.WithCancel(context.Background())
-		time.AfterFunc(timeout, func() {
-			cancel()
-		})
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
 
 		for i, e := range expected {
 			wg.Go(func() {
@@ -74,8 +72,10 @@ func assertPopFrontAsync(timeout time.Duration, expected ...any) Assertion {
 				case <-ctx.Done():
 					t.Errorf("i: %d, Cancelled PopFrontAsync due to timeout! Expected: %v, timeout: %v", i, e, timeout)
 				default:
-					actual := q.PopFrontAsync()
-					if len(actual) != 1 || actual[0] != e {
+					err, actual := q.PopFrontAsync(ctx)
+					if err != nil {
+						t.Errorf("i: %d, PopFrontAsync() error: %v", i, err)
+					} else if len(actual) != 1 || actual[0] != e {
 						t.Errorf("i: %d, PopFrontAsync() = %v; Expected: %v, timeout: %v", i, actual, e, timeout)
 					}
 				}
