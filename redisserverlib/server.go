@@ -18,9 +18,19 @@ type (
 		execute(ctx context.Context, r *redisCommandProcessor, params redislib.RESP2_Array) commandResult
 	}
 
+	redisType_List   = *concurrent.ConcurrentDeque[string]
+	redisType_String = string
+
+	redisType_FieldValuePair struct {
+		Field string
+		Value string
+	}
+
+	// Stream key => entry ID => [field => value, ...]
+	redisType_Stream = *concurrent.ConcurrentMap[string, *concurrent.ConcurrentDeque[redisType_FieldValuePair]]
+
 	redisDataStore struct {
-		cache *concurrent.ConcurrentMap[string, string]
-		lists *concurrent.ConcurrentMap[string, *concurrent.ConcurrentDeque[string]]
+		dataStore *concurrent.ConcurrentMap[string, any]
 	}
 
 	redisCommandProcessor struct {
@@ -33,11 +43,27 @@ type (
 	}
 )
 
+func newRedisStreamAny() any {
+	return concurrent.NewConcurrentMap[string, *concurrent.ConcurrentDeque[redisType_FieldValuePair]]()
+}
+
+func newRedisListAny() any {
+	return concurrent.NewConcurrentDeque[string]()
+}
+
+func respifyArray(tokens []string) string {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "*%d\r\n", len(tokens))
+	for _, token := range tokens {
+		fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(token), token)
+	}
+	return buf.String()
+}
+
 func NewRedisCommandProcessor() RedisCommandProcessor {
 	return &redisCommandProcessor{
 		redisDataStore: redisDataStore{
-			cache: concurrent.NewConcurrentMap[string, string](),
-			lists: concurrent.NewConcurrentMap[string, *concurrent.ConcurrentDeque[string]](),
+			dataStore: concurrent.NewConcurrentMap[string, any](),
 		},
 		commands: map[string]commandInterface{
 			// https://redis.io/docs/latest/commands/redis-8-6-commands/
@@ -58,20 +84,14 @@ func NewRedisCommandProcessor() RedisCommandProcessor {
 			"LPOP":   lpop{},
 			"BLPOP":  blpop{},
 
+			// Stream commands
+			"XADD": xadd{},
+
 			// Generic commands
 			"HELP": help{},
 			"TYPE": typeCmd{},
 		},
 	}
-}
-
-func respifyArray(tokens []string) string {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "*%d\r\n", len(tokens))
-	for _, token := range tokens {
-		fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(token), token)
-	}
-	return buf.String()
 }
 
 func (r *redisCommandProcessor) ExecuteCommand(ctx context.Context, params commandParams) commandResult {

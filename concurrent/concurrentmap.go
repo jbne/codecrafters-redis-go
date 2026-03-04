@@ -38,7 +38,18 @@ func (m *ConcurrentMap[K, V]) Get(key K) (value V, exists bool) {
 	return entry.data, exists
 }
 
-func (m *ConcurrentMap[K, V]) GetOrCreate(key K, newFunc func() V) V {
+func (m *ConcurrentMap[K, V]) Delete(key K) {
+	m.Lock()
+	defer m.Unlock()
+	if entry, exists := m.entries[key]; exists {
+		if entry.timer != nil {
+			entry.timer.Stop()
+		}
+		delete(m.entries, key)
+	}
+}
+
+func (m *ConcurrentMap[K, V]) GetOrCreate(key K, newFunc func() V, expiryDuration time.Duration) V {
 	// 1. FAST PATH: Uses m.Get's internal RLock
 	if data, exists := m.Get(key); exists {
 		return data
@@ -53,41 +64,23 @@ func (m *ConcurrentMap[K, V]) GetOrCreate(key K, newFunc func() V) V {
 	isExpired := !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt)
 
 	if exists && !isExpired {
-		return entry.data
+		if !isExpired {
+			return entry.data
+		}
+
+		// If it exists but is expired, we should clean it up before creating a new one.
+		if entry.timer != nil {
+			entry.timer.Stop()
+		}
 	}
 
 	// 4. CLEANUP & CREATE:
 	// If it existed but was expired, we overwrite it now.
 	// If it didn't exist, we create it now.
 	newValue := newFunc()
-	m.entries[key] = mapEntry[V]{data: newValue}
-	return newValue
-}
+	newEntry := mapEntry[V]{data: newValue}
 
-func (m *ConcurrentMap[K, V]) Delete(key K) {
-	m.Lock()
-	defer m.Unlock()
-	if entry, exists := m.entries[key]; exists {
-		if entry.timer != nil {
-			entry.timer.Stop()
-		}
-		delete(m.entries, key)
-	}
-}
-
-func (m *ConcurrentMap[K, V]) Set(key K, value V, expiryDuration time.Duration) {
-	m.Lock()
-	defer m.Unlock()
-
-	// 1. Clean up previous entry
-	if previous, exists := m.entries[key]; exists && previous.timer != nil {
-		previous.timer.Stop()
-	}
-
-	// 2. Prepare the new entry
-	newEntry := mapEntry[V]{data: value}
-
-	// 3. Handle expiration logic
+	// 5. Handle expiration logic
 	if expiryDuration > 0 {
 		newEntry.expiresAt = time.Now().Add(expiryDuration)
 
@@ -104,4 +97,5 @@ func (m *ConcurrentMap[K, V]) Set(key K, value V, expiryDuration time.Duration) 
 	}
 
 	m.entries[key] = newEntry
+	return newValue
 }

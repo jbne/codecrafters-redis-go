@@ -227,7 +227,7 @@ func ListenConn(ctx context.Context) {
 }
 
 func main() {
-	slog.SetDefault(slog.New(logger.NewHandler()))
+	slog.SetDefault(slog.New(logger.NewHandler(slog.LevelDebug)))
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var wg sync.WaitGroup

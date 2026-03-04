@@ -19,11 +19,11 @@ const (
 	RequestIdKey = "request_id"
 )
 
-func NewHandler() *MyHandler {
+func NewHandler(logLevel slog.Level) *MyHandler {
 	// Configure colored logging with tint
 	return &MyHandler{
 		Handler: tint.NewHandler(os.Stderr, &tint.Options{
-			Level:      slog.LevelDebug,
+			Level:      logLevel,
 			TimeFormat: "2006-01-02 15:04:05.000",
 			NoColor:    false,
 			AddSource:  true,

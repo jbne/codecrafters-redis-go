@@ -3,8 +3,6 @@ package redisserverlib
 import (
 	"context"
 	"fmt"
-
-	"github.com/codecrafters-io/redis-starter-go/concurrent"
 )
 
 type (
@@ -28,7 +26,11 @@ func (c lpush) execute(ctx context.Context, r *redisCommandProcessor, params com
 	}
 
 	listName := params[1]
-	list := r.lists.GetOrCreate(listName, concurrent.NewConcurrentDeque[string])
-	newLen := list.PushFront(params[2:]...)
-	return fmt.Sprintf(":%d\r\n", newLen)
+	entry := r.dataStore.GetOrCreate(listName, newRedisListAny, 0)
+	if list, ok := entry.(redisType_List); ok {
+		newLen := list.PushFront(params[2:]...)
+		return fmt.Sprintf(":%d\r\n", newLen)
+	}
+
+	return fmt.Sprintf("-ERR LPUSH can only be called on lists! %s", c.getUsage(ctx))
 }

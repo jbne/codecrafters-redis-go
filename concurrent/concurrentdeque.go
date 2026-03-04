@@ -18,10 +18,9 @@ type (
 )
 
 func NewConcurrentDeque[T any]() *ConcurrentDeque[T] {
-	q := &ConcurrentDeque[T]{
+	return &ConcurrentDeque[T]{
 		buf: make([]T, 16), // Start with a small power-of-two capacity
 	}
-	return q
 }
 
 // PushBack: O(1) amortized

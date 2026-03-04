@@ -62,7 +62,7 @@ func ReadWorker(ctx context.Context, in <-chan string) {
 }
 
 func main() {
-	slog.SetDefault(slog.New(logger.NewHandler()))
+	slog.SetDefault(slog.New(logger.NewHandler(slog.LevelInfo)))
 	ctx, cancel := context.WithCancel(context.Background())
 
 	network := "tcp4"

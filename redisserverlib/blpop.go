@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/codecrafters-io/redis-starter-go/concurrent"
 	"github.com/codecrafters-io/redis-starter-go/redislib"
 )
 
@@ -49,17 +48,21 @@ func (c blpop) execute(ctx context.Context, r *redisCommandProcessor, params com
 	}
 
 	listName := params[1]
-	list := r.lists.GetOrCreate(listName, concurrent.NewConcurrentDeque[string])
-	err, result := list.PopFrontAsync(ctx)
+	entry := r.dataStore.GetOrCreate(listName, newRedisListAny, 0)
+	if list, ok := entry.(redisType_List); ok {
+		err, result := list.PopFrontAsync(ctx)
 
-	if err != nil {
-		slog.DebugContext(ctx, "BLPOP error occurred", "listName", listName, "error", err)
-		if err == context.DeadlineExceeded {
-			return "*-1\r\n"
+		if err != nil {
+			slog.DebugContext(ctx, "BLPOP error occurred", "listName", listName, "error", err)
+			if err == context.DeadlineExceeded {
+				return "*-1\r\n"
+			}
+			return ""
 		}
-		return ""
+
+		result = append([]string{listName}, result...)
+		return redislib.SerializeRespArray(result)
 	}
 
-	result = append([]string{listName}, result...)
-	return redislib.SerializeRespArray(result)
+	return fmt.Sprintf("-ERR BLPOP can only be called on lists! %s", c.getUsage(ctx))
 }

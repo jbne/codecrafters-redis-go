@@ -24,8 +24,17 @@ func (c typeCmd) execute(ctx context.Context, r *redisCommandProcessor, params c
 		return fmt.Sprintf("-ERR TYPE requires exactly one argument! %s", c.getUsage(ctx))
 	}
 
-	if _, exists := r.cache.Get(params[1]); exists {
-		return "+string\r\n"
+	if entry, exists := r.dataStore.Get(params[1]); exists {
+		switch entry.(type) {
+		case redisType_String:
+			return "+string\r\n"
+		case redisType_List:
+			return "+list\r\n"
+		case redisType_Stream:
+			return "+stream\r\n"
+		default:
+			return "+unknown\r\n"
+		}
 	}
 
 	return "+none\r\n"

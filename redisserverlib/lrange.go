@@ -46,10 +46,13 @@ func (c lrange) execute(ctx context.Context, r *redisCommandProcessor, params co
 	}
 
 	listName := params[1]
-	list, exists := r.lists.Get(listName)
-	if !exists {
-		return "*0\r\n"
+	if entry, exists := r.dataStore.Get(listName); exists {
+		if list, ok := entry.(redisType_List); ok {
+			return redislib.SerializeRespArray(list.GetRange(startIndex, stopIndex))
+		}
+
+		return fmt.Sprintf("-ERR LRANGE can only be called on lists! %s", c.getUsage(ctx))
 	}
 
-	return redislib.SerializeRespArray(list.GetRange(startIndex, stopIndex))
+	return "*0\r\n"
 }

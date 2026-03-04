@@ -3,7 +3,6 @@ package redisserverlib
 import (
 	"context"
 	"fmt"
-	"log/slog"
 )
 
 type (
@@ -25,13 +24,14 @@ func (c get) execute(ctx context.Context, r *redisCommandProcessor, params comma
 		return "-ERR No key provided to GET!\r\n"
 	}
 	key := params[1]
-	response, ok := r.cache.Get(key)
 
-	if ok {
-		slog.DebugContext(ctx, "GET cache hit", "key", key)
-		return fmt.Sprintf("$%d\r\n%s\r\n", len(response), response)
+	if entry, exists := r.dataStore.Get(key); exists {
+		if value, ok := entry.(redisType_String); ok {
+			return fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
+		}
+
+		return fmt.Sprintf("-ERR GET can only be called on string values! %s", c.getUsage(ctx))
 	}
 
-	slog.DebugContext(ctx, "GET cache miss", "key", key)
 	return "$-1\r\n"
 }

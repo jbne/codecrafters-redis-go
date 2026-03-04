@@ -14,11 +14,12 @@ type (
 func (c set) getUsage(ctx context.Context) string {
 	return `
 usage:
-	set key value [NX | XX | IFEQ ifeq-value | IFNE ifne-value | IFDEQ ifdeq-digest | IFDNE ifdne-digest] [get] [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]
+	set key value [PX milliseconds]
 
 summary:
-	Set key to hold the string value. If key already holds a value, it is overwritten, regardless of its type. Any previous time to live associated with the key is discarded on successful SET operation.
-	Only PX milliseconds expiry option is implemented for simplicity - other options are ignored.
+	Set key to hold the string value.
+	If key already holds a value, it is overwritten, regardless of its type.
+	Any previous time to live associated with the key is discarded on successful SET operation.
 ` + "\r\n"
 }
 
@@ -53,9 +54,12 @@ func (c set) execute(ctx context.Context, r *redisCommandProcessor, params comma
 			}
 		}
 
-		r.cache.Set(key, value, time.Duration(expiryDurationMs)*time.Millisecond)
+		entry := r.dataStore.GetOrCreate(key, func() any { return value }, time.Duration(expiryDurationMs)*time.Millisecond)
+		if _, ok := entry.(redisType_String); ok {
+			return "+OK\r\n"
+		}
 
-		return "+OK\r\n"
+		return fmt.Sprintf("-ERR SET command can only be called on string values! %s", c.getUsage(ctx))
 	case arrSize == 2:
 		return fmt.Sprintf("-ERR No value given for key %s!\r\n", tokens[1])
 	case arrSize == 1:

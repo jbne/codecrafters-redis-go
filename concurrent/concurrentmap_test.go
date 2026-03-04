@@ -14,10 +14,10 @@ func main() {
 
 	for i := range 100000 {
 		// 1. Set a value that expires almost immediately
-		m.Set(key, "old", 1*time.Nanosecond)
+		m.GetOrCreate(key, func() string { return "old" }, 1*time.Nanosecond)
 
 		// 2. Immediately overwrite it with a long-lived value
-		m.Set(key, "new", 1*time.Hour)
+		m.GetOrCreate(key, func() string { return "new" }, 1*time.Hour)
 
 		// 3. Small pause to let any runaway timers catch up
 		time.Sleep(10 * time.Microsecond)

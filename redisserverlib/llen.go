@@ -26,10 +26,14 @@ func (c llen) execute(ctx context.Context, r *redisCommandProcessor, params comm
 	}
 
 	listName := params[1]
-	list, exists := r.lists.Get(listName)
-	if !exists {
-		return ":0\r\n"
+	entry, exists := r.dataStore.Get(listName)
+	if exists {
+		if list, ok := entry.(redisType_List); ok {
+			return fmt.Sprintf(":%d\r\n", list.Len())
+		}
+
+		return fmt.Sprintf("-ERR LLEN can only be called on lists! %s", c.getUsage(ctx))
 	}
 
-	return fmt.Sprintf(":%d\r\n", list.Len())
+	return ":0\r\n"
 }

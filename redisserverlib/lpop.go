@@ -43,13 +43,17 @@ func (c lpop) execute(ctx context.Context, r *redisCommandProcessor, params comm
 	}
 
 	listName := params[1]
-	if list, exists := r.lists.Get(listName); exists {
-		result := list.PopFront(count)
-		if count == 1 {
-			return fmt.Sprintf("$%d\r\n%s\r\n", len(result[0]), result[0])
+	if entry, exists := r.dataStore.Get(listName); exists {
+		if list, ok := entry.(redisType_List); ok {
+			result := list.PopFront(count)
+			if count == 1 {
+				return fmt.Sprintf("$%d\r\n%s\r\n", len(result[0]), result[0])
+			}
+
+			return redislib.SerializeRespArray(result)
 		}
 
-		return redislib.SerializeRespArray(result)
+		return fmt.Sprintf("-ERR LPOP can only be called on lists! %s", c.getUsage(ctx))
 	}
 
 	return "$-1\r\n"
