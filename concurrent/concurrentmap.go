@@ -13,7 +13,7 @@ type (
 	}
 	ConcurrentMap[Key comparable, Value any] struct {
 		entries map[Key]mapEntry[Value]
-		sync.RWMutex
+		mu      sync.RWMutex
 	}
 )
 
@@ -24,8 +24,8 @@ func NewConcurrentMap[K comparable, V any]() *ConcurrentMap[K, V] {
 }
 
 func (m *ConcurrentMap[K, V]) Get(key K) (value V, exists bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	entry, exists := m.entries[key]
 
 	// Passive Expiration Check:
@@ -39,8 +39,8 @@ func (m *ConcurrentMap[K, V]) Get(key K) (value V, exists bool) {
 }
 
 func (m *ConcurrentMap[K, V]) Delete(key K) {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if entry, exists := m.entries[key]; exists {
 		if entry.timer != nil {
 			entry.timer.Stop()
@@ -56,8 +56,8 @@ func (m *ConcurrentMap[K, V]) GetOrCreate(key K, newFunc func() V, expiryDuratio
 	}
 
 	// 2. SLOW PATH: Full Write Lock
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	// 3. DOUBLE-CHECK: Re-evaluate state now that we hold the lock
 	entry, exists := m.entries[key]
@@ -88,8 +88,8 @@ func (m *ConcurrentMap[K, V]) GetOrCreate(key K, newFunc func() V, expiryDuratio
 		newEntry.timer = time.AfterFunc(expiryDuration, func() {
 			// Double-check: only delete if this is still the same timer
 			// (Prevents the "new value deleted by old timer" race)
-			m.Lock()
-			defer m.Unlock()
+			m.mu.Lock()
+			defer m.mu.Unlock()
 			if current, exists := m.entries[key]; exists && current.timer == newEntry.timer {
 				delete(m.entries, key)
 			}

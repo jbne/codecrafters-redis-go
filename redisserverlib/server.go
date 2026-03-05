@@ -26,11 +26,14 @@ type (
 		Value string
 	}
 
-	// Stream key => entry ID => [field => value, ...]
-	redisType_Stream = *concurrent.ConcurrentMap[string, *concurrent.ConcurrentDeque[redisType_FieldValuePair]]
+	redisType_StreamEntry = *concurrent.ConcurrentDeque[redisType_FieldValuePair]
+
+	// Entry ID => [field => value, ...]
+	redisType_Stream = *concurrent.ConcurrentMap[string, redisType_StreamEntry]
 
 	redisDataStore struct {
-		dataStore *concurrent.ConcurrentMap[string, any]
+		dataStore   *concurrent.ConcurrentMap[string, any]
+		LastEntryId string
 	}
 
 	redisCommandProcessor struct {
@@ -43,8 +46,12 @@ type (
 	}
 )
 
+func newRedisStreamEntry() redisType_StreamEntry {
+	return concurrent.NewConcurrentDeque[redisType_FieldValuePair]()
+}
+
 func newRedisStreamAny() any {
-	return concurrent.NewConcurrentMap[string, *concurrent.ConcurrentDeque[redisType_FieldValuePair]]()
+	return concurrent.NewConcurrentMap[string, redisType_StreamEntry]()
 }
 
 func newRedisListAny() any {
@@ -63,7 +70,8 @@ func respifyArray(tokens []string) string {
 func NewRedisCommandProcessor() RedisCommandProcessor {
 	return &redisCommandProcessor{
 		redisDataStore: redisDataStore{
-			dataStore: concurrent.NewConcurrentMap[string, any](),
+			dataStore:   concurrent.NewConcurrentMap[string, any](),
+			LastEntryId: "0-0",
 		},
 		commands: map[string]commandInterface{
 			// https://redis.io/docs/latest/commands/redis-8-6-commands/
