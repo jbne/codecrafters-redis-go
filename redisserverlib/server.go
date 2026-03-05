@@ -31,9 +31,15 @@ type (
 	// Entry ID => [field => value, ...]
 	redisType_Stream = *concurrent.ConcurrentMap[string, redisType_StreamEntry]
 
+	redisType_EntryId struct {
+		id  string
+		ms  int
+		seq int
+	}
+
 	redisDataStore struct {
 		dataStore   *concurrent.ConcurrentMap[string, any]
-		LastEntryId string
+		LastEntryId redisType_EntryId
 	}
 
 	redisCommandProcessor struct {
@@ -71,7 +77,7 @@ func NewRedisCommandProcessor() RedisCommandProcessor {
 	return &redisCommandProcessor{
 		redisDataStore: redisDataStore{
 			dataStore:   concurrent.NewConcurrentMap[string, any](),
-			LastEntryId: "0-0",
+			LastEntryId: redisType_EntryId{id: "0-0", ms: 0, seq: 0},
 		},
 		commands: map[string]commandInterface{
 			// https://redis.io/docs/latest/commands/redis-8-6-commands/
