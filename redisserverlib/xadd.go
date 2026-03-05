@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type (
@@ -54,37 +55,41 @@ func (c xadd) execute(ctx context.Context, r *redisCommandProcessor, params comm
 		if strings.Compare(entryId, "0-0") <= 0 {
 			return "-ERR The ID specified in XADD must be greater than 0-0\r\n"
 		}
-	} else if subMatchMap["1"] != "" {
-		nextMsPart, err := strconv.Atoi(entryId[0 : len(entryId)-2])
-		if err != nil {
-			return fmt.Sprintf("-ERR Could not parse milliseconds part of ID as an int! %s", err)
+	} else if subMatchMap["1"] == "" && subMatchMap["2"] == "" {
+		return fmt.Sprintf("-ERR The ID format specified was valid but is not supported! %s", c.getUsage(ctx))
+	} else {
+		nextMsPart := time.Now().UnixMilli()
+		if subMatchMap["1"] != "" {
+			var err error
+			nextMsPart, err = strconv.ParseInt(entryId[0 : len(entryId)-2], 10, 64)
+			if err != nil {
+				return fmt.Sprintf("-ERR Could not parse milliseconds part of ID as an int! %s", err)
+			}
 		}
 
-		nextSeqPart := 0
+		nextSeqPart := int64(0)
 		if nextMsPart == r.LastEntryId.ms {
 			nextSeqPart = r.LastEntryId.seq + 1
 		}
 
 		entryId = fmt.Sprintf("%d-%d", nextMsPart, nextSeqPart)
-	} else {
-		return fmt.Sprintf("-ERR The ID format specified was valid but is not supported! %s", c.getUsage(ctx))
 	}
 
 	if strings.Compare(entryId, r.LastEntryId.id) <= 0 {
 		return "-ERR The ID specified in XADD is equal or smaller than the target stream top item\r\n"
 	}
 
-	var msPart int
-	var seqPart int
+	var msPart int64
+	var seqPart int64
 	var err error
 	entryIdParts := strings.Split(entryId, "-")
 
-	msPart, err = strconv.Atoi(entryIdParts[0])
+	msPart, err = strconv.ParseInt(entryIdParts[0], 10, 64)
 	if err != nil {
 		return fmt.Sprintf("-ERR Could not parse milliseconds part of ID as an int! %s", err)
 	}
 
-	seqPart, err = strconv.Atoi(entryIdParts[1])
+	seqPart, err = strconv.ParseInt(entryIdParts[1], 10, 64)
 	if err != nil {
 		return fmt.Sprintf("-ERR Could not parse sequence part of ID as an int! %s", err)
 	}

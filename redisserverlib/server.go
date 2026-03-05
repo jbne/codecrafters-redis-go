@@ -33,8 +33,8 @@ type (
 
 	redisType_EntryId struct {
 		id  string
-		ms  int
-		seq int
+		ms  int64
+		seq int64
 	}
 
 	redisDataStore struct {
