@@ -2,7 +2,6 @@ package redislib
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -69,19 +68,6 @@ func TokenizeCommandLine(input string) []string {
 	}
 
 	return ret
-}
-
-func ScanCRLF(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	if atEOF && len(data) == 0 {
-		return 0, nil, nil
-	}
-	if i := bytes.Index(data, []byte{'\r', '\n'}); i >= 0 {
-		return i + 2, data[0:i], nil
-	}
-	if atEOF {
-		return len(data), data, nil
-	}
-	return 0, nil, nil
 }
 
 func ScanResp(data []byte, atEOF bool) (advance int, token []byte, err error) {
