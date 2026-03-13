@@ -1,9 +1,6 @@
 package redistypes
 
 import (
-	"bytes"
-	"fmt"
-
 	"github.com/codecrafters-io/redis-starter-go/lib/concurrent"
 	resptypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/resp"
 )
@@ -33,13 +30,4 @@ func NewStream() any {
 
 func NewList() any {
 	return concurrent.NewConcurrentDeque[resptypes.BulkString]()
-}
-
-func RespifyArray(tokens []string) string {
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "*%d\r\n", len(tokens))
-	for _, token := range tokens {
-		fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(token), token)
-	}
-	return buf.String()
 }
