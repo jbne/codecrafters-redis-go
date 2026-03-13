@@ -1,3 +1,3 @@
 go fmt $PSScriptRoot/...
 $env:CGO_ENABLED=1
-go run -race $PSScriptRoot/redisserver
+go run -race $PSScriptRoot/server
