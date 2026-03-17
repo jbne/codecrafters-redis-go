@@ -46,7 +46,7 @@ func (c lpop) execute(ctx context.Context, params commandParams) commandResult {
 	if count < 1 {
 		return resptypes.Error{Val: fmt.Errorf("ERR Count must be a positive integer!")}
 	}
-
+ 
 	if entry, exists := c.dataStore.Get(listName); exists {
 		if list, ok := entry.(redistypes.List); ok {
 			result := resptypes.Array[resptypes.BulkString](list.PopFront(count))

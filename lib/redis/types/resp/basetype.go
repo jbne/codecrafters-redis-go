@@ -36,7 +36,7 @@ func FromRespString(respStr string) (result BaseType, ok bool) {
 		return Integer{Val: intValue}, true
 	case '$':
 		if respStr[:nextSeparatorIndex+2] == "$-1\r\n" {
-			return BulkString{Length: -1, Val: ""}, true
+			return BulkString{Length: -1}, true
 		}
 
 		parts := strings.SplitN(respStr[1:], "\r\n", 3)
@@ -91,7 +91,7 @@ func FromRespString(respStr string) (result BaseType, ok bool) {
 			return Error{Val: fmt.Errorf("-ERRPARSE Array length values do not match! Got: %v, expected: %v", len(elements), expectedLength)}, false
 		}
 
-		return elements, true
+		return Array[BaseType](elements), true
 	default:
 		return Error{Val: fmt.Errorf("-ERRPARSE Invalid RESP type prefix! Got: %v", respStr)}, false
 	}

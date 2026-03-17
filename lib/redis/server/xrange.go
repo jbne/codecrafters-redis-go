@@ -41,17 +41,23 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 	start := params[2].Val
 	end := params[3].Val
 
-	if !xrangeEntryIdRegexp.MatchString(start) {
-		return resptypes.Error{Val: fmt.Errorf("ERR Start '%s' is not a valid stream entry ID! %s", start, c.getUsage(ctx))}
+	if start == "-" {
+		start = "0-0"
+	} else {
+		if !xrangeEntryIdRegexp.MatchString(start) {
+			return resptypes.Error{Val: fmt.Errorf("ERR Start '%s' is not a valid stream entry ID! %s", start, c.getUsage(ctx))}
+		}
+
+		if !strings.Contains(start, "-") {
+			start = start + "-0"
+		}
 	}
 
 	if !xrangeEntryIdRegexp.MatchString(end) {
 		return resptypes.Error{Val: fmt.Errorf("ERR End '%s' is not a valid stream entry ID! %s", end, c.getUsage(ctx))}
 	}
 
-	if !strings.Contains(start, "-") {
-		start = start + "-0"
-	}
+
 
 	if !strings.Contains(end, "-") {
 		// This is the max possible sequence number that Redis supports.
