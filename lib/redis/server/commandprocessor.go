@@ -65,17 +65,17 @@ func NewRedisCommandProcessor() CommandProcessor {
 	}
 }
 
-func (r *redisCommandProcessor) ExecuteCommand(ctx context.Context, respStr string) resptypes.BaseType {
+func (r *redisCommandProcessor) ExecuteCommand(ctx context.Context, respStr string) resptypes.BaseInterface {
 	slog.DebugContext(ctx, "Command received", "respStr", respStr)
 
-	parsed, ok := resptypes.FromRespString(respStr)
-	if !ok {
+	parsed, byteCount := resptypes.ParseRespString(respStr)
+	if byteCount == 0 {
 		return parsed
 	}
 
-	respArr, ok := parsed.(resptypes.Array[resptypes.BaseType])
+	respArr, ok := parsed.(resptypes.Array[resptypes.BaseInterface])
 	if !ok {
-		return resptypes.Error{Val: fmt.Errorf("ERRPARSE Could not convert parsed request to RESP array! Got: %v", respStr)}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERRPARSE Could not convert parsed request to RESP array! Got: %v", respStr)}
 	}
 
 	bulkStrings := make(resptypes.Array[resptypes.BulkString], 0)
@@ -85,14 +85,14 @@ func (r *redisCommandProcessor) ExecuteCommand(ctx context.Context, respStr stri
 			bulkStrings = append(bulkStrings, e)
 			continue
 		default:
-			return resptypes.Error{Val: fmt.Errorf("ERRPARSE Command was not an array of bulk strings! Got: %v", respStr)}
+			return resptypes.SimpleError{Val: fmt.Errorf("ERRPARSE Command was not an array of bulk strings! Got: %v", respStr)}
 		}
 	}
 
 	commandName := bulkStrings[0].Val
 	entry, ok := r.commands[commandName]
 	if !ok {
-		return resptypes.Error{Val: fmt.Errorf("NOTSUPPORTED Command '%s' is not supported!", commandName)}
+		return resptypes.SimpleError{Val: fmt.Errorf("NOTSUPPORTED Command '%s' is not supported!", commandName)}
 	}
 
 	result := entry.execute(ctx, bulkStrings)

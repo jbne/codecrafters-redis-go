@@ -28,14 +28,14 @@ summary:
 
 func (c help) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 2 {
-		return resptypes.String{Val: c.getUsage(ctx)}
+		return resptypes.SimpleString{Val: c.getUsage(ctx)}
 	}
 
 	commandName := params[1].Val
 	command, exists := c.usages[commandName]
 	if !exists {
-		return resptypes.Error{Val: fmt.Errorf("NOTSUPPORTED Command '%s' is not supported", commandName)}
+		return resptypes.SimpleError{Val: fmt.Errorf("NOTSUPPORTED Command '%s' is not supported", commandName)}
 	}
 
-	return resptypes.String{Val: command.getUsage(ctx)}
+	return resptypes.SimpleString{Val: command.getUsage(ctx)}
 }

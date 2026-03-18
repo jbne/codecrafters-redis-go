@@ -5,15 +5,15 @@ import (
 )
 
 type (
-	String struct {
+	SimpleString struct {
 		Val string
 	}
 )
 
-func (r String) ToRespString() string {
+func (r SimpleString) ToRespString() string {
 	return fmt.Sprintf("+%s\r\n", r.Val)
 }
 
-func (r String) ToString() string {
+func (r SimpleString) toString() string {
 	return r.Val
 }

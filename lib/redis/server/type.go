@@ -26,7 +26,7 @@ summary:
 
 func (c typeCmd) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 2 {
-		return resptypes.Error{Val: fmt.Errorf("ERR TYPE requires exactly one argument! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR TYPE requires exactly one argument! %s", c.getUsage(ctx))}
 	}
 
 	key := params[1].Val
@@ -44,5 +44,5 @@ func (c typeCmd) execute(ctx context.Context, params commandParams) commandResul
 		}
 	}
 
-	return resptypes.String{Val: typeString}
+	return resptypes.SimpleString{Val: typeString}
 }

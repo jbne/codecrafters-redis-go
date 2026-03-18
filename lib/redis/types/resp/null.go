@@ -8,6 +8,6 @@ func (r Null) ToRespString() string {
 	return "_\r\n"
 }
 
-func (r Null) ToString() string {
+func (r Null) toString() string {
 	return ""
 }

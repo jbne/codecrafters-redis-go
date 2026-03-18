@@ -27,7 +27,7 @@ summary:
 
 func (c llen) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 2 {
-		return resptypes.Error{Val: fmt.Errorf("ERR LLEN requires key! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR LLEN requires key! %s", c.getUsage(ctx))}
 	}
 
 	listName := params[1].Val
@@ -37,7 +37,7 @@ func (c llen) execute(ctx context.Context, params commandParams) commandResult {
 			return resptypes.Integer{Val: int64(list.Len())}
 		}
 
-		return resptypes.Error{Val: fmt.Errorf("ERR LLEN can only be called on lists! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR LLEN can only be called on lists! %s", c.getUsage(ctx))}
 	}
 
 	return resptypes.Integer{Val: 0}

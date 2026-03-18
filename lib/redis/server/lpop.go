@@ -29,7 +29,7 @@ summary:
 func (c lpop) execute(ctx context.Context, params commandParams) commandResult {
 	paramLen := len(params)
 	if paramLen < 2 || paramLen > 3 {
-		return resptypes.Error{Val: fmt.Errorf("ERR LPOP requires 2 or 3 arguments!")}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR LPOP requires 2 or 3 arguments!")}
 	}
 
 	listName := params[1].Val
@@ -39,14 +39,14 @@ func (c lpop) execute(ctx context.Context, params commandParams) commandResult {
 		var err error
 		count, err = strconv.Atoi(countStr)
 		if err != nil {
-			return resptypes.Error{Val: fmt.Errorf("ERR Could not convert '%s' to an int for count! Err: %w", countStr, err)}
+			return resptypes.SimpleError{Val: fmt.Errorf("ERR Could not convert '%s' to an int for count! Err: %w", countStr, err)}
 		}
 	}
 
 	if count < 1 {
-		return resptypes.Error{Val: fmt.Errorf("ERR Count must be a positive integer!")}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR Count must be a positive integer!")}
 	}
- 
+
 	if entry, exists := c.dataStore.Get(listName); exists {
 		if list, ok := entry.(redistypes.List); ok {
 			result := resptypes.Array[resptypes.BulkString](list.PopFront(count))
@@ -57,7 +57,7 @@ func (c lpop) execute(ctx context.Context, params commandParams) commandResult {
 			return result
 		}
 
-		return resptypes.Error{Val: fmt.Errorf("ERR LPOP can only be called on lists! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR LPOP can only be called on lists! %s", c.getUsage(ctx))}
 	}
 
 	return resptypes.NullBulkString

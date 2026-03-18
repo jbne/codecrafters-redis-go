@@ -33,7 +33,7 @@ summary:
 func (c blpop) execute(ctx context.Context, params commandParams) commandResult {
 	paramLen := len(params)
 	if paramLen != 3 {
-		return resptypes.Error{Val: fmt.Errorf("ERR BLPOP requires 3 arguments!")}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR BLPOP requires 3 arguments!")}
 	}
 
 	listName := params[1].Val
@@ -41,10 +41,10 @@ func (c blpop) execute(ctx context.Context, params commandParams) commandResult 
 
 	timeoutSeconds, err := strconv.ParseFloat(timeoutStr, 32)
 	if err != nil {
-		return resptypes.Error{Val: fmt.Errorf("ERR Could not convert '%s' to a float for timeoutSeconds! Err: %w", timeoutStr, err)}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR Could not convert '%s' to a float for timeoutSeconds! Err: %w", timeoutStr, err)}
 	}
 	if timeoutSeconds < 0 {
-		return resptypes.Error{Val: fmt.Errorf("ERR TimeoutSeconds must be a non-negative integer!")}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR TimeoutSeconds must be a non-negative integer!")}
 	}
 
 	var cancel context.CancelFunc
@@ -70,5 +70,5 @@ func (c blpop) execute(ctx context.Context, params commandParams) commandResult 
 		return resptypes.Array[resptypes.BulkString](result)
 	}
 
-	return resptypes.Error{Val: fmt.Errorf("ERR BLPOP can only be called on lists! %s", c.getUsage(ctx))}
+	return resptypes.SimpleError{Val: fmt.Errorf("ERR BLPOP can only be called on lists! %s", c.getUsage(ctx))}
 }

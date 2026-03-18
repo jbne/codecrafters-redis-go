@@ -8,7 +8,7 @@ import (
 
 type (
 	commandParams = resptypes.Array[resptypes.BulkString]
-	commandResult = resptypes.BaseType
+	commandResult = resptypes.BaseInterface
 
 	commandUsage interface {
 		getUsage(ctx context.Context) string
@@ -20,6 +20,6 @@ type (
 	}
 
 	CommandProcessor interface {
-		ExecuteCommand(ctx context.Context, respStr string) resptypes.BaseType
+		ExecuteCommand(ctx context.Context, respStr string) resptypes.BaseInterface
 	}
 )

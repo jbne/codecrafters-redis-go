@@ -15,7 +15,7 @@ type (
 )
 
 const (
-	ClientIdKey  = "client_id"
+	ClientKey    = "client"
 	RequestIdKey = "request_id"
 )
 
@@ -32,8 +32,8 @@ func NewHandler(logLevel slog.Level) *MyHandler {
 }
 
 func (h *MyHandler) Handle(ctx context.Context, r slog.Record) error {
-	if id, ok := ctx.Value(ClientIdKey).(int); ok {
-		r.AddAttrs(slog.Int(ClientIdKey, id))
+	if id, ok := ctx.Value(ClientKey).(string); ok {
+		r.AddAttrs(slog.String(ClientKey, id))
 	}
 
 	if id, ok := ctx.Value(RequestIdKey).(int); ok {

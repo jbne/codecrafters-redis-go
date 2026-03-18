@@ -25,7 +25,7 @@ summary:
 
 func (c get) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) < 2 {
-		return resptypes.Error{Val: fmt.Errorf("ERR No key provided to GET!")}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR No key provided to GET!")}
 	}
 
 	key := params[1].Val
@@ -34,7 +34,7 @@ func (c get) execute(ctx context.Context, params commandParams) commandResult {
 			return value
 		}
 
-		return resptypes.Error{Val: fmt.Errorf("ERR GET can only be called on string values! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR GET can only be called on string values! %s", c.getUsage(ctx))}
 	}
 
 	return resptypes.BulkString{Length: -1}

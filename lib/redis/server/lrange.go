@@ -35,7 +35,7 @@ summary:
 
 func (c lrange) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 4 {
-		return resptypes.Error{Val: fmt.Errorf("ERR LRANGE key, start, and stop! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR LRANGE key, start, and stop! %s", c.getUsage(ctx))}
 	}
 
 	listName := params[1].Val
@@ -44,12 +44,12 @@ func (c lrange) execute(ctx context.Context, params commandParams) commandResult
 
 	startIndex, err := strconv.Atoi(startIndexStr)
 	if err != nil {
-		return resptypes.Error{Val: fmt.Errorf("ERR Start index '%s' could not be converted to int! Err: %w", startIndexStr, err)}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR Start index '%s' could not be converted to int! Err: %w", startIndexStr, err)}
 	}
 
 	stopIndex, err := strconv.Atoi(stopIndexStr)
 	if err != nil {
-		return resptypes.Error{Val: fmt.Errorf("ERR Stop index '%s' could not be converted to int! Err: %w", stopIndexStr, err)}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR Stop index '%s' could not be converted to int! Err: %w", stopIndexStr, err)}
 	}
 
 	if entry, exists := c.dataStore.Get(listName); exists {
@@ -58,8 +58,8 @@ func (c lrange) execute(ctx context.Context, params commandParams) commandResult
 			return bulkStrings
 		}
 
-		return resptypes.Error{Val: fmt.Errorf("ERR LRANGE can only be called on lists! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR LRANGE can only be called on lists! %s", c.getUsage(ctx))}
 	}
 
-	return resptypes.Array[resptypes.BaseType]{}
+	return resptypes.Array[resptypes.BaseInterface]{}
 }

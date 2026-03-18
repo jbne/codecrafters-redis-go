@@ -17,8 +17,7 @@ import (
 
 func ReadWorker(ctx context.Context, conn net.Conn, c chan string, commandProcessor redisserverlib.CommandProcessor) {
 	defer close(c)
-	remoteAddr := conn.RemoteAddr()
-	slog.DebugContext(ctx, "ReadWorker started", "client", remoteAddr)
+	slog.DebugContext(ctx, "ReadWorker started")
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
@@ -42,6 +41,7 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string, commandProces
 				result := commandProcessor.ExecuteCommand(ctx, text)
 				switch result.(type) {
 				case resptypes.Null:
+					slog.DebugContext(ctx, "Null result, no response sent!")
 					return
 				}
 
@@ -123,7 +123,6 @@ func ListenConn(ctx context.Context) {
 		}
 	})
 
-	clientId := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -132,9 +131,9 @@ func ListenConn(ctx context.Context) {
 			return
 		case conn := <-in:
 			remoteAddr := conn.RemoteAddr()
-			ctx := context.WithValue(ctx, logger.ClientIdKey, clientId)
+			ctx := context.WithValue(ctx, logger.ClientKey, remoteAddr.String())
 			c := make(chan string)
-			slog.InfoContext(ctx, "Client connected", "client", remoteAddr)
+			slog.InfoContext(ctx, "Client connected")
 			wg.Go(func() {
 				ReadWorker(ctx, conn, c, commandProcessor)
 				slog.DebugContext(ctx, "ReadWorker done")
@@ -143,7 +142,6 @@ func ListenConn(ctx context.Context) {
 				WriteWorker(ctx, conn, c)
 				slog.DebugContext(ctx, "WriteWorker done")
 			})
-			clientId++
 		}
 	}
 }

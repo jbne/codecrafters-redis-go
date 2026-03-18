@@ -22,7 +22,7 @@ summary:
 
 func (c echo) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 2 {
-		return resptypes.Error{Val: fmt.Errorf("ERR Unexpected number of params! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR Unexpected number of params! %s", c.getUsage(ctx))}
 	}
 
 	return params[1]

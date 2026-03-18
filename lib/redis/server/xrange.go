@@ -34,7 +34,7 @@ summary:
 
 func (c xrange) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 4 {
-		return resptypes.Error{Val: fmt.Errorf("ERR XRANGE requires exactly 4 arguments! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR XRANGE requires exactly 4 arguments! %s", c.getUsage(ctx))}
 	}
 
 	streamKey := params[1].Val
@@ -45,7 +45,7 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 		start = "0-0"
 	} else {
 		if !xrangeEntryIdRegexp.MatchString(start) {
-			return resptypes.Error{Val: fmt.Errorf("ERR Start '%s' is not a valid stream entry ID! %s", start, c.getUsage(ctx))}
+			return resptypes.SimpleError{Val: fmt.Errorf("ERR Start '%s' is not a valid stream entry ID! %s", start, c.getUsage(ctx))}
 		}
 
 		if !strings.Contains(start, "-") {
@@ -54,26 +54,28 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 	}
 
 	if !xrangeEntryIdRegexp.MatchString(end) {
-		return resptypes.Error{Val: fmt.Errorf("ERR End '%s' is not a valid stream entry ID! %s", end, c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR End '%s' is not a valid stream entry ID! %s", end, c.getUsage(ctx))}
 	}
-
-
 
 	if !strings.Contains(end, "-") {
 		// This is the max possible sequence number that Redis supports.
 		end = end + "-18446744073709551615"
 	}
 
-	streamAny := c.dataStore.GetOrCreate(streamKey, redistypes.NewStream, 0)
-	stream, ok := streamAny.(redistypes.Stream)
-	if !ok {
-		return resptypes.Error{Val: fmt.Errorf("ERR XRANGE can only be called on streams! %s", c.getUsage(ctx))}
+	streamAny, exists := c.dataStore.Get(streamKey)
+	if !exists {
+		return resptypes.Array[resptypes.BaseInterface]{}
 	}
 
-	arr := make(resptypes.Array[resptypes.BaseType], 0)
+	stream, ok := streamAny.(redistypes.Stream)
+	if !ok {
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR XRANGE can only be called on streams! %s", c.getUsage(ctx))}
+	}
+
+	arr := make(resptypes.Array[resptypes.BaseInterface], 0)
 	stream.ForEach(func(entryId string, entries redistypes.StreamEntries) {
 		if start <= entryId && entryId <= end {
-			inner := make(resptypes.Array[resptypes.BaseType], 0)
+			inner := make(resptypes.Array[resptypes.BaseInterface], 0)
 			inner = append(inner, resptypes.NewBulkString(entryId))
 			entries.ForEach(func(_ int, item redistypes.StreamEntry) {
 				inner = append(inner, item)

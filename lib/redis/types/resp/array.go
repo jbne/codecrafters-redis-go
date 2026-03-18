@@ -6,10 +6,10 @@ import (
 )
 
 type (
-	Array[T BaseType] []T
+	Array[T BaseInterface] []T
 )
 
-var NullArray = Array[BaseType](nil)
+var NullArray = Array[BaseInterface](nil)
 
 func (r Array[T]) ToRespString() string {
 	if r == nil {
@@ -25,12 +25,12 @@ func (r Array[T]) ToRespString() string {
 	}
 }
 
-func (r Array[T]) ToString() string {
+func (r Array[T]) toString() string {
 	var sb strings.Builder
 
 	fmt.Fprint(&sb, "[\r\n")
 	for _, e := range r {
-		fmt.Fprintf(&sb, "%s\r\n", e.ToString())
+		fmt.Fprintf(&sb, "%s\r\n", e.toString())
 	}
 	fmt.Fprint(&sb, "]")
 

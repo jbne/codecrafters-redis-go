@@ -5,15 +5,15 @@ import (
 )
 
 type (
-	Error struct {
+	SimpleError struct {
 		Val error
 	}
 )
 
-func (r Error) ToRespString() string {
+func (r SimpleError) ToRespString() string {
 	return fmt.Sprintf("-%s\r\n", r.Val.Error())
 }
 
-func (r Error) ToString() string {
+func (r SimpleError) toString() string {
 	return r.Val.Error()
 }

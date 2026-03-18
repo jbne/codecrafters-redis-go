@@ -34,11 +34,11 @@ summary:
 
 func (c xadd) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) < 4 {
-		return resptypes.Error{Val: fmt.Errorf("ERR XADD requires at least 4 arguments! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR XADD requires at least 4 arguments! %s", c.getUsage(ctx))}
 	}
 
 	if len(params)%2 == 0 {
-		return resptypes.Error{Val: fmt.Errorf("ERR XADD requires an odd number of arguments! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR XADD requires an odd number of arguments! %s", c.getUsage(ctx))}
 	}
 
 	streamKey := params[1].Val
@@ -46,7 +46,7 @@ func (c xadd) execute(ctx context.Context, params commandParams) commandResult {
 
 	match := entryIdRegexp.FindStringSubmatch(entryId)
 	if match == nil {
-		return resptypes.Error{Val: fmt.Errorf("ERR The ID specified in XADD is not in a valid format! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR The ID specified in XADD is not in a valid format! %s", c.getUsage(ctx))}
 	}
 
 	subMatchMap := make(map[string]string)
@@ -62,7 +62,7 @@ func (c xadd) execute(ctx context.Context, params commandParams) commandResult {
 			var err error
 			nextMsPart, err = strconv.ParseInt(entryId[0:len(entryId)-2], 10, 64)
 			if err != nil {
-				return resptypes.Error{Val: fmt.Errorf("ERR Could not parse milliseconds part of ID as an int64! %w", err)}
+				return resptypes.SimpleError{Val: fmt.Errorf("ERR Could not parse milliseconds part of ID as an int64! %w", err)}
 			}
 		}
 
@@ -75,11 +75,11 @@ func (c xadd) execute(ctx context.Context, params commandParams) commandResult {
 	}
 
 	if strings.Compare(entryId, "0-0") <= 0 {
-		return resptypes.Error{Val: fmt.Errorf("ERR The ID specified in XADD must be greater than 0-0")}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR The ID specified in XADD must be greater than 0-0")}
 	}
 
 	if strings.Compare(entryId, c.lastStreamEntryId.Id) <= 0 {
-		return resptypes.Error{Val: fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR The ID specified in XADD is equal or smaller than the target stream top item")}
 	}
 
 	var msPart int64
@@ -89,19 +89,19 @@ func (c xadd) execute(ctx context.Context, params commandParams) commandResult {
 
 	msPart, err = strconv.ParseInt(entryIdParts[0], 10, 64)
 	if err != nil {
-		return resptypes.Error{Val: fmt.Errorf("ERR Could not parse milliseconds part of ID as an int64! %w", err)}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR Could not parse milliseconds part of ID as an int64! %w", err)}
 	}
 
 	seqPart, err = strconv.ParseInt(entryIdParts[1], 10, 64)
 	if err != nil {
-		return resptypes.Error{Val: fmt.Errorf("ERR Could not parse sequence part of ID as an int64! %w", err)}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR Could not parse sequence part of ID as an int64! %w", err)}
 	}
 
 	streamAny := c.dataStore.GetOrCreate(streamKey, redistypes.NewStream, 0)
 	if stream, ok := streamAny.(redistypes.Stream); ok {
 
 		if _, exists := stream.Get(entryId); exists {
-			return resptypes.Error{Val: fmt.Errorf("ERR Entry with ID '%s' already exists in stream! %s", entryId, c.getUsage(ctx))}
+			return resptypes.SimpleError{Val: fmt.Errorf("ERR Entry with ID '%s' already exists in stream! %s", entryId, c.getUsage(ctx))}
 		}
 
 		entry := stream.GetOrCreate(entryId, redistypes.NewStreamEntries, 0)
@@ -113,5 +113,5 @@ func (c xadd) execute(ctx context.Context, params commandParams) commandResult {
 		return resptypes.NewBulkString(entryId)
 	}
 
-	return resptypes.Error{Val: fmt.Errorf("ERR XADD can only be called on streams! %s", c.getUsage(ctx))}
+	return resptypes.SimpleError{Val: fmt.Errorf("ERR XADD can only be called on streams! %s", c.getUsage(ctx))}
 }

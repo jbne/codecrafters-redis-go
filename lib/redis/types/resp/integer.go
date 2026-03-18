@@ -15,6 +15,6 @@ func (r Integer) ToRespString() string {
 	return fmt.Sprintf(":%d\r\n", r.Val)
 }
 
-func (r Integer) ToString() string {
+func (r Integer) toString() string {
 	return strconv.FormatInt(r.Val, 10)
 }

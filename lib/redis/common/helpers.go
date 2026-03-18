@@ -11,76 +11,19 @@ import (
 	resptypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/resp"
 )
 
-func TokenizeCommandLine(input string) []string {
-	var ret []string
-	var current []rune
-	inQuote := false
-	quoteIdx := -1 // Track where the active quote started
-	escapeNext := false
-
-	for i, r := range input {
-		if escapeNext {
-			// Handle escaped character
-			current = append(current, r)
-			escapeNext = false
-			continue
-		}
-
-		if r == '\\' && inQuote {
-			// Next character is escaped
-			escapeNext = true
-			continue
-		}
-
-		if r == '"' {
-			// Start of a quoted block
-			if !inQuote && (i == 0 || input[i-1] == ' ') {
-				inQuote = true
-				quoteIdx = i
-				continue
-			}
-			// End of a quoted block
-			if inQuote && (i == len(input)-1 || input[i+1] == ' ') {
-				inQuote = false
-				quoteIdx = -1
-				continue
-			}
-			// Literal quote inside a word
-			current = append(current, r)
-		} else if r == ' ' && !inQuote {
-			if len(current) > 0 {
-				ret = append(ret, string(current))
-				current = nil
-			}
-		} else {
-			current = append(current, r)
-		}
-	}
-
-	// If we finished but a quote was never closed
-	if inQuote {
-		// Treat the start-quote as a literal and re-append the rest
-		// A simple way is to take the slice from the quoteIdx and split it by fields
-		remainder := strings.Fields(input[quoteIdx:])
-		ret = append(ret, remainder...)
-	} else if len(current) > 0 {
-		ret = append(ret, string(current))
-	}
-
-	return ret
-}
-
 func ScanResp(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	if atEOF && len(data) == 0 {
+		// Stop scanning if at EOF and no more data to read
 		return 0, nil, nil
 	}
 
-	if respType, ok := resptypes.FromRespString(string(data[:])); ok {
+	if respType, bytesCount := resptypes.ParseRespString(string(data[:])); bytesCount != 0 {
 		serialized := respType.ToRespString()
 		length := len(serialized)
 		return length, data[0:length], nil
 	}
 
+	// If bytesCount == 0, then we may have an incomplete message - request more data.
 	return 0, nil, nil
 }
 
@@ -99,11 +42,13 @@ func CreateScannerChannel(ctx context.Context, reader io.Reader, splitFunc bufio
 				slog.DebugContext(ctx, "Scanner cancelled by context")
 				return
 			case in <- line:
+				slog.DebugContext(ctx, "Scanner channel got something", "line", line)
 			}
 		}
 		// Check for errors after Scan() returns false
 		if err := scanner.Err(); err != nil {
 			slog.ErrorContext(ctx, "Scanner error", "error", err)
+			return
 		}
 
 		slog.DebugContext(ctx, "Scanner channel closed")

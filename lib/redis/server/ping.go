@@ -25,5 +25,5 @@ summary:
 }
 
 func (c ping) execute(ctx context.Context, params commandParams) commandResult {
-	return resptypes.String{Val: "PONG"}
+	return resptypes.SimpleString{Val: "PONG"}
 }
