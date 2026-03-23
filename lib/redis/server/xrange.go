@@ -53,6 +53,9 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 		}
 	}
 
+	if end == "+" {
+		end = "18446744073709551615-18446744073709551615"
+	} else {
 	if !xrangeEntryIdRegexp.MatchString(end) {
 		return resptypes.SimpleError{Val: fmt.Errorf("ERR End '%s' is not a valid stream entry ID! %s", end, c.getUsage(ctx))}
 	}
@@ -61,6 +64,7 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 		// This is the max possible sequence number that Redis supports.
 		end = end + "-18446744073709551615"
 	}
+}
 
 	streamAny, exists := c.dataStore.Get(streamKey)
 	if !exists {
