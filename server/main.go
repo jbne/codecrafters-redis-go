@@ -16,12 +16,13 @@ import (
 )
 
 func ReadWorker(ctx context.Context, conn net.Conn, c chan string, commandProcessor redisserverlib.CommandProcessor) {
+	ctx, cancel := context.WithCancel(ctx)
 	defer close(c)
 	slog.DebugContext(ctx, "ReadWorker started")
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	in, ctx := rediscommon.CreateScannerChannel(ctx, conn, rediscommon.ScanResp)
+	in := rediscommon.CreateScannerChannel(ctx, cancel, conn, rediscommon.ScanResp)
 	requestId := 0
 	for {
 		ctx := context.WithValue(ctx, logger.RequestIdKey, requestId)
@@ -151,11 +152,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var wg sync.WaitGroup
-	wg.Go(func() {
-		rediscommon.ListenStdin(ctx, nil)
-		slog.DebugContext(ctx, "StdinWorker done")
-		cancel()
-	})
+	rediscommon.ListenStdin(ctx, cancel)
 	wg.Go(func() {
 		ListenConn(ctx)
 		slog.DebugContext(ctx, "ListenConn done")

@@ -27,21 +27,20 @@ func ScanResp(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	return 0, nil, nil
 }
 
-func CreateScannerChannel(ctx context.Context, reader io.Reader, splitFunc bufio.SplitFunc) (<-chan string, context.Context) {
-	in := make(chan string)
-	ctx, cancel := context.WithCancel(ctx)
+func CreateScannerChannel(ctx context.Context, cancel context.CancelFunc, reader io.Reader, splitFunc bufio.SplitFunc) <-chan string {
+	out := make(chan string)
 	go func() {
 		scanner := bufio.NewScanner(reader)
 		scanner.Split(splitFunc)
 		defer cancel()
-		defer close(in)
+		defer close(out)
 		for scanner.Scan() {
 			line := scanner.Text()
 			select {
 			case <-ctx.Done():
 				slog.DebugContext(ctx, "Scanner cancelled by context")
 				return
-			case in <- line:
+			case out <- line:
 				slog.DebugContext(ctx, "Scanner channel got something", "line", line)
 			}
 		}
@@ -54,33 +53,40 @@ func CreateScannerChannel(ctx context.Context, reader io.Reader, splitFunc bufio
 		slog.DebugContext(ctx, "Scanner channel closed")
 	}()
 
-	return in, ctx
+	return out
 }
 
-func ListenStdin(ctx context.Context, out chan<- string) {
-	in, ctx := CreateScannerChannel(ctx, os.Stdin, bufio.ScanLines)
-	for {
-		select {
-		case <-ctx.Done():
-			slog.DebugContext(ctx, "StdinWorker context cancelled")
-			return
-		case text := <-in:
-			input := strings.TrimSpace(text)
-			if input == "" {
-				continue
-			}
-
-			switch input {
-			case "q":
-				slog.InfoContext(ctx, "User quit")
+func ListenStdin(ctx context.Context, cancel context.CancelFunc) <-chan string {
+	out := make(chan string)
+	go func() {
+		defer close(out)
+		defer cancel()
+		in := CreateScannerChannel(ctx, cancel, os.Stdin, bufio.ScanLines)
+		for {
+			select {
+			case <-ctx.Done():
+				slog.DebugContext(ctx, "StdinWorker context cancelled")
 				return
-			default:
-				slog.DebugContext(ctx, "Command parsed", "input", input)
+			case text := <-in:
+				input := strings.TrimSpace(text)
+				if input == "" {
+					slog.DebugContext(ctx, "Empty stdin line received")
+					continue
+				}
 
-				if out != nil {
-					out <- text
+				switch input {
+				case "q":
+					slog.InfoContext(ctx, "User quit")
+					return
+				default:
+					slog.DebugContext(ctx, "Got input from stdin", "input", input)
+
+					if out != nil {
+						out <- text
+					}
 				}
 			}
 		}
-	}
+	}()
+	return out
 }

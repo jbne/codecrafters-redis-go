@@ -1,12 +1,14 @@
 package redisclientlib
 
 import (
-	"bytes"
+	"bufio"
 	"context"
-	"fmt"
+	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"sync"
+	"time"
 
 	redislib "github.com/codecrafters-io/redis-starter-go/lib/redis/common"
 	resptypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/resp"
@@ -14,134 +16,153 @@ import (
 
 type (
 	redisClient struct {
-		done            chan struct{}
-		conn            net.Conn
-		network         string
-		address         string
-		requestChannel  chan string
-		responseChannel chan resptypes.BaseInterface
+		network string
+		address string
+		writer  io.Writer
+		scanner *bufio.Scanner
+		mu      sync.Mutex
 	}
 
 	RedisClient interface {
-		Done() <-chan struct{}
-		SendRequest(ctx context.Context, request string) (response resptypes.BaseInterface)
-		connect(ctx context.Context) (err error)
-		disconnect(ctx context.Context) (err error)
+		ExecuteCommand(ctx context.Context, cmd string) CommandResult
 	}
 )
 
-func NewRedisClient(ctx context.Context, network string, address string) (RedisClient, error) {
-	client := &redisClient{
-		done:    make(chan struct{}),
-		network: network,
-		address: address,
+func NewRedisClient(readerWriter io.ReadWriter) RedisClient {
+	redis := &redisClient{
+		writer:  readerWriter,
+		scanner: bufio.NewScanner(readerWriter),
 	}
-	if err := client.connect(ctx); err != nil {
-		return nil, err
+	redis.scanner.Split(redislib.ScanResp)
+
+	if conn, ok := redis.writer.(net.Conn); ok {
+		addr := conn.RemoteAddr()
+		redis.network = addr.Network()
+		redis.address = addr.String()
 	}
-	return client, nil
+
+	return redis
 }
 
-func (c *redisClient) Done() <-chan struct{} {
-	return c.done
+func (redis *redisClient) ExecuteCommand(ctx context.Context, command string) CommandResult {
+	redis.mu.Lock()
+	defer redis.mu.Unlock()
+
+	if err := redis.ensureConnected(ctx); err != nil {
+		return newCommandResult(nil, err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, time.Second*30)
+	defer cancel()
+
+	if dl, ok := ctx.Deadline(); ok {
+		if conn, ok := redis.writer.(net.Conn); ok {
+			conn.SetDeadline(dl)
+			defer conn.SetDeadline(time.Time{})
+		}
+	}
+
+	return redis.executeCommand(ctx, command)
 }
 
-func (c *redisClient) SendRequest(ctx context.Context, request string) resptypes.BaseInterface {
-	c.requestChannel <- request
-	return <-c.responseChannel
+func (redis *redisClient) executeCommand(ctx context.Context, command string) CommandResult {
+	if command == "" {
+		return newCommandResult(nil, errors.New("Cannot send empty command!"))
+	}
+
+	tokens := tokenizeCommandLine(command)
+	if len(tokens) == 0 {
+		return newCommandResult(nil, errors.New("Tokenization of command resulted in empty array!"))
+	}
+
+	bulkStringArr := resptypes.ToBulkStringArray(tokens)
+	slog.DebugContext(ctx, "Converted tokens to bulk string array", "bulkStringArr", bulkStringArr)
+
+	respStr := bulkStringArr.ToRespString()
+	slog.DebugContext(ctx, "Serialized to resp string", "respStr", respStr)
+
+	trySend := func() CommandResult {
+		if redis.writer == nil {
+			return newCommandResult(nil, errors.New("Writer is nil!"))
+		}
+
+		if redis.scanner == nil {
+			return newCommandResult(nil, errors.New("Scanner is nil!"))
+		}
+
+		if _, err := redis.writer.Write([]byte(respStr)); err != nil {
+			redis.close()
+			return newCommandResult(nil, err)
+		}
+
+		slog.DebugContext(ctx, "Wrote resp string, scanning for text")
+		if !redis.scanner.Scan() {
+			redis.close()
+			return newCommandResult(nil, redis.scanner.Err())
+		}
+
+		return newCommandResult(nil, nil)
+	}
+
+	result := trySend()
+	if result.Err() != nil {
+		slog.WarnContext(ctx, "Send/receive resulted in an error, attempting to reconnect.", "err", result.Err())
+		if err := redis.ensureConnected(ctx); err != nil {
+			return newCommandResult(nil, errors.Join(result.Err(), err))
+		}
+
+		retryResult := trySend()
+		if retryResult.Err() != nil {
+			return newCommandResult(nil, errors.Join(result.Err(), retryResult.Err()))
+		}
+
+		result = retryResult
+	}
+
+	text := redis.scanner.Text()
+	slog.DebugContext(ctx, "Scanner read successful", "text", text)
+	response, bytesCount := resptypes.ParseRespString(text)
+	if bytesCount <= 0 {
+		if err, ok := response.(resptypes.SimpleError); ok {
+			return newCommandResult(err, err.Val)
+		}
+
+		return newCommandResult(response, errors.New("Parse error but received non-error type!"))
+	}
+
+	return newCommandResult(response, nil)
 }
 
-func (c *redisClient) connect(ctx context.Context) error {
-	slog.With("address", c.address).InfoContext(ctx, "Connecting to server")
-	conn, err := net.Dial(c.network, c.address)
+func (redis *redisClient) ensureConnected(ctx context.Context) error {
+	if redis.writer == nil {
+		if redis.network == "" {
+			slog.WarnContext(ctx, "Network is empty, cannot reconnect!")
+			return nil
+		}
 
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to connect", "err", err)
+		if redis.address == "" {
+			slog.WarnContext(ctx, "Address is empty, cannot reconnect!")
+			return nil
+		}
+
+		conn, err := net.DialTimeout(redis.network, redis.address, 5*time.Second)
+		if err != nil {
+			return err
+		}
+
+		redis.writer = conn
+		redis.scanner = bufio.NewScanner(conn)
+		redis.scanner.Split(redislib.ScanResp)
+	}
+
+	return nil
+}
+
+func (redis *redisClient) close() error {
+	if conn, ok := redis.writer.(net.Conn); ok {
+		err := conn.Close()
+		redis.writer = nil
 		return err
 	}
-
-	c.conn = conn
-	c.requestChannel = make(chan string)
-	c.responseChannel = make(chan resptypes.BaseInterface)
-	go func() {
-		ctx, cancel := context.WithCancel(ctx)
-		slog.InfoContext(ctx, "Connected to server")
-		defer c.disconnect(ctx)
-		defer close(c.done)
-
-		var wg sync.WaitGroup
-		wg.Go(func() {
-			writeWorker(ctx, conn, c.requestChannel)
-			slog.DebugContext(ctx, "WriteWorker done")
-			cancel()
-		})
-		wg.Go(func() {
-			in, ctx := redislib.CreateScannerChannel(ctx, conn, redislib.ScanResp)
-			readWorker(ctx, in, c.responseChannel)
-			slog.DebugContext(ctx, "ReadWorker done")
-			cancel()
-		})
-		wg.Wait()
-	}()
-
-	return err
-}
-
-func (c *redisClient) disconnect(ctx context.Context) (err error) {
-	if c.conn != nil {
-		err = c.conn.Close()
-		if err != nil {
-			slog.ErrorContext(ctx, "Error during disconnect!", "err", err)
-		}
-	}
-
-	return err
-}
-
-func writeWorker(ctx context.Context, conn net.Conn, requestChannel <-chan string) {
-	var buf bytes.Buffer
-	for {
-		select {
-		case <-ctx.Done():
-			slog.DebugContext(ctx, "writeWorker context cancelled")
-			return
-		case input := <-requestChannel:
-			tokens := tokenizeCommandLine(input)
-			if len(tokens) == 0 {
-				slog.WarnContext(ctx, "No tokens parsed from input", "input", input)
-				continue
-			}
-
-			buf.Reset()
-			fmt.Fprintf(&buf, "*%d\r\n", len(tokens))
-			for _, token := range tokens {
-				fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(token), token)
-			}
-
-			_, err := conn.Write(buf.Bytes())
-			if err != nil {
-				slog.ErrorContext(ctx, "Failed to write command", "error", err)
-				return
-			}
-
-			slog.DebugContext(ctx, "Command sent", "request", buf.String())
-		}
-	}
-}
-
-func readWorker(ctx context.Context, in <-chan string, out chan<- resptypes.BaseInterface) {
-	for {
-		select {
-		case <-ctx.Done():
-			slog.DebugContext(ctx, "readWorker context cancelled")
-			return
-		case respStr := <-in:
-			respType, bytesCount := resptypes.ParseRespString(respStr)
-			if bytesCount == 0 {
-				slog.ErrorContext(ctx, "Received invalid RESP response!", "respStr", respStr, "respType", respType)
-				return
-			}
-			out <- respType
-		}
-	}
+	return nil
 }

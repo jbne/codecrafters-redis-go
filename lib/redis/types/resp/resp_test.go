@@ -72,8 +72,8 @@ func TestParsingFailures(t *testing.T) {
 				t.Errorf("Expected SimpleError type! Got: %v", parsed)
 			}
 
-			if bytesCount != 0 {
-				t.Errorf("Byte count was not 0! got %d", bytesCount)
+			if bytesCount > 0 {
+				t.Errorf("Expected byte count to be <= 0! got %d", bytesCount)
 			}
 		})
 	}

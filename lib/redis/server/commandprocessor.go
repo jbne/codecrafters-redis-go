@@ -75,7 +75,7 @@ func (r *redisCommandProcessor) ExecuteCommand(ctx context.Context, respStr stri
 
 	respArr, ok := parsed.(resptypes.Array[resptypes.BaseInterface])
 	if !ok {
-		return resptypes.SimpleError{Val: fmt.Errorf("ERRPARSE Could not convert parsed request to RESP array! Got: %v", respStr)}
+		return resptypes.SimpleError{Val: fmt.Errorf("NOTEXPECTED Parsed request was not a RESP array! Got: %v", respStr)}
 	}
 
 	bulkStrings := make(resptypes.Array[resptypes.BulkString], 0)
@@ -85,7 +85,7 @@ func (r *redisCommandProcessor) ExecuteCommand(ctx context.Context, respStr stri
 			bulkStrings = append(bulkStrings, e)
 			continue
 		default:
-			return resptypes.SimpleError{Val: fmt.Errorf("ERRPARSE Command was not an array of bulk strings! Got: %v", respStr)}
+			return resptypes.SimpleError{Val: fmt.Errorf("NOTEXPECTED Parsed request was not an array of bulk strings! Got: %v", respStr)}
 		}
 	}
 

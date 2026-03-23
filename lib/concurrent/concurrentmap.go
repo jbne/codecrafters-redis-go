@@ -1,6 +1,9 @@
 package concurrent
 
 import (
+	"cmp"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 )
@@ -12,20 +15,20 @@ type (
 		expiresAt time.Time
 	}
 
-	ConcurrentMap[K comparable, V any] interface {
+	ConcurrentMap[K cmp.Ordered, V any] interface {
 		Get(key K) (value V, exists bool)
 		Delete(key K)
 		GetOrCreate(key K, newFunc func() V, expiryDuration time.Duration) V
-		ForEach(f func(K, V))
+		ForEachOrdered(f func(K, V))
 	}
 
-	concurrentMap[Key comparable, Value any] struct {
+	concurrentMap[Key cmp.Ordered, Value any] struct {
 		entries map[Key]mapEntry[Value]
 		mu      sync.RWMutex
 	}
 )
 
-func NewConcurrentMap[K comparable, V any]() ConcurrentMap[K, V] {
+func NewConcurrentMap[K cmp.Ordered, V any]() ConcurrentMap[K, V] {
 	return &concurrentMap[K, V]{
 		entries: make(map[K]mapEntry[V]),
 	}
@@ -108,11 +111,14 @@ func (m *concurrentMap[K, V]) GetOrCreate(key K, newFunc func() V, expiryDuratio
 	return newValue
 }
 
-func (m *concurrentMap[K, V]) ForEach(f func(K, V)) {
+func (m *concurrentMap[K, V]) ForEachOrdered(f func(K, V)) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for key, entry := range m.entries {
-		f(key, entry.data)
+	for _, key := range slices.Sorted(maps.Keys(m.entries)) {
+		entry := m.entries[key]
+		if entry.expiresAt.IsZero() || time.Now().Before(entry.expiresAt) {
+			f(key, entry.data)
+		}
 	}
 }

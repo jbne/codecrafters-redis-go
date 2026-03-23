@@ -73,7 +73,8 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 	}
 
 	arr := make(resptypes.Array[resptypes.BaseInterface], 0)
-	stream.ForEach(func(entryId string, entries redistypes.StreamEntries) {
+	stream.ForEachOrdered(func(entryId string, entries redistypes.StreamEntries) {
+		slog.DebugContext(ctx, "wtf", "entryId", entryId)
 		if start <= entryId && entryId <= end {
 			inner := make(resptypes.Array[resptypes.BaseInterface], 0)
 			inner = append(inner, resptypes.NewBulkString(entryId))

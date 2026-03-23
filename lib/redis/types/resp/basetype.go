@@ -22,14 +22,18 @@ func ToBulkStringArray(tokens []string) Array[BulkString] {
 	return ret
 }
 
+func parseErr(err error) (SimpleError, int) {
+	return SimpleError{Val: fmt.Errorf("ERRPARSE %w", err)}, 0
+}
+
 func ParseRespString(respStr string) (BaseInterface, int) {
 	if respStr == "" {
-		return SimpleError{Val: fmt.Errorf("ERRPARSE Empty RESP string is not valid! Got: %v", respStr)}, 0
+		return parseErr(fmt.Errorf("Empty RESP string is not valid! Got: %v", respStr))
 	}
 
 	nextSeparatorIndex := strings.Index(respStr, "\r\n")
 	if nextSeparatorIndex == -1 {
-		return SimpleError{Val: fmt.Errorf("ERRPARSE RESP string must end with CRLF! Got: %v", respStr)}, 0
+		return parseErr(fmt.Errorf("RESP string must end with CRLF! Got: %v", respStr))
 	}
 
 	switch respStr[0] {
@@ -40,7 +44,7 @@ func ParseRespString(respStr string) (BaseInterface, int) {
 	case ':':
 		intValue, err := strconv.ParseInt(respStr[1:nextSeparatorIndex], 10, 64)
 		if err != nil {
-			return SimpleError{Val: fmt.Errorf("ERRPARSE Invalid integer value in RESP string! Got: %v", err)}, 0
+			return parseErr(fmt.Errorf("Invalid integer value in RESP string! Got: %v", err))
 		}
 		return Integer{Val: intValue}, nextSeparatorIndex + 2
 	case '$':
@@ -52,15 +56,15 @@ func ParseRespString(respStr string) (BaseInterface, int) {
 
 		length, err := strconv.Atoi(parts[0])
 		if err != nil {
-			return SimpleError{Val: fmt.Errorf("ERRPARSE Invalid length value in RESP string! Got: %v", err)}, 0
+			return parseErr(fmt.Errorf("Invalid length value in RESP string! Got: %v", err))
 		}
 
 		if length < 0 {
-			return SimpleError{Val: fmt.Errorf("ERRPARSE Length must be positive integer!")}, 0
+			return parseErr(fmt.Errorf("Length must be positive integer!"))
 		}
 
 		if length != len(parts[1]) {
-			return SimpleError{Val: fmt.Errorf("ERRPARSE Bulk string length does not match actual string length! Got: %v, expected: %v", len(parts[1]), length)}, 0
+			return parseErr(fmt.Errorf("Bulk string length does not match actual string length! Got: %v, expected: %v", len(parts[1]), length))
 		}
 
 		return BulkString{Length: length, Val: parts[1]}, nextSeparatorIndex + len(parts[1]) + 4
@@ -71,7 +75,7 @@ func ParseRespString(respStr string) (BaseInterface, int) {
 
 		expectedLength, err := strconv.Atoi(respStr[1:nextSeparatorIndex])
 		if err != nil {
-			return SimpleError{Val: fmt.Errorf("ERRPARSE Invalid length value in RESP array! Err: %v", err)}, 0
+			return parseErr(fmt.Errorf("Invalid length value in RESP array! Err: %v", err))
 		}
 
 		size := 0
@@ -87,7 +91,7 @@ func ParseRespString(respStr string) (BaseInterface, int) {
 
 			element, numBytes := ParseRespString(respStr)
 			if numBytes == 0 {
-				return SimpleError{Val: fmt.Errorf("ERRPARSE Could not parse string '%s' to array! Got: %v", respStr, element)}, 0
+				return parseErr(fmt.Errorf("Could not parse string '%s' to array! Got: %v", respStr, element))
 			}
 
 			switch respStr[0] {
@@ -102,11 +106,11 @@ func ParseRespString(respStr string) (BaseInterface, int) {
 		}
 
 		if size != expectedLength {
-			return SimpleError{Val: fmt.Errorf("ERRPARSE Array length values do not match! Got: %v, expected: %v", len(elements), expectedLength)}, 0
+			return parseErr(fmt.Errorf("Array length values do not match! Got: %v, expected: %v", len(elements), expectedLength))
 		}
 
 		return Array[BaseInterface](elements), totalNumBytes
 	default:
-		return SimpleError{Val: fmt.Errorf("ERRPARSE Invalid RESP type prefix! Got: %v", respStr)}, 0
+		return parseErr(fmt.Errorf("Invalid RESP type prefix! Got: %v", respStr))
 	}
 }
