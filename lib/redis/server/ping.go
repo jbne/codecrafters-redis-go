@@ -10,7 +10,11 @@ type (
 	ping struct{}
 )
 
-func (c ping) getUsage(ctx context.Context) string {
+func (c ping) moniker() string {
+	return "PING"
+}
+
+func (c ping) getUsage() string {
 	return `
 usage:
 	PING [message]
@@ -25,5 +29,9 @@ summary:
 }
 
 func (c ping) execute(ctx context.Context, params commandParams) commandResult {
+	if len(params) > 1 {
+		return params[1]
+	}
+
 	return resptypes.SimpleString{Val: "PONG"}
 }

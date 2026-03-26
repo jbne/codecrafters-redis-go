@@ -4,16 +4,21 @@ import (
 	"context"
 	"fmt"
 
+	redistypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/redis"
 	resptypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/resp"
 )
 
 type (
 	get struct {
-		*redisDataStore
+		redistypes.DataStore
 	}
 )
 
-func (c get) getUsage(ctx context.Context) string {
+func (c get) moniker() string {
+	return "GET"
+}
+
+func (c get) getUsage() string {
 	return `
 usage:
 	get key
@@ -29,12 +34,12 @@ func (c get) execute(ctx context.Context, params commandParams) commandResult {
 	}
 
 	key := params[1].Val
-	if entry, exists := c.dataStore.Get(key); exists {
-		if value, ok := entry.(resptypes.BulkString); ok {
-			return value
+	if dsVal, exists := c.Get(key); exists {
+		if dsVal.Type != redistypes.TypeString {
+			return resptypes.SimpleError{Val: fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")}
 		}
 
-		return resptypes.SimpleError{Val: fmt.Errorf("ERR GET can only be called on string values! %s", c.getUsage(ctx))}
+		return dsVal.String
 	}
 
 	return resptypes.BulkString{Length: -1}

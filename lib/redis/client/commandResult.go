@@ -4,25 +4,25 @@ import resptypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/re
 
 type (
 	commandResult struct {
-		resptypes.BaseInterface
+		resptypes.RespSerializable
 		error
 	}
 
 	CommandResult interface {
-		Val() resptypes.BaseInterface
+		Val() resptypes.RespSerializable
 		Err() error
 	}
 )
 
-func newCommandResult(val resptypes.BaseInterface, err error) CommandResult {
+func newCommandResult(val resptypes.RespSerializable, err error) CommandResult {
 	return &commandResult{
-		BaseInterface: val,
-		error:         err,
+		RespSerializable: val,
+		error:            err,
 	}
 }
 
-func (result commandResult) Val() resptypes.BaseInterface {
-	return result.BaseInterface
+func (result commandResult) Val() resptypes.RespSerializable {
+	return result.RespSerializable
 }
 
 func (result commandResult) Err() error {

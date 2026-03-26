@@ -10,11 +10,15 @@ import (
 
 type (
 	typeCmd struct {
-		*redisDataStore
+		redistypes.DataStore
 	}
 )
 
-func (c typeCmd) getUsage(ctx context.Context) string {
+func (c typeCmd) moniker() string {
+	return "TYPE"
+}
+
+func (c typeCmd) getUsage() string {
 	return `
 usage:
 	TYPE key
@@ -26,20 +30,20 @@ summary:
 
 func (c typeCmd) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 2 {
-		return resptypes.SimpleError{Val: fmt.Errorf("ERR TYPE requires exactly one argument! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR TYPE requires exactly one argument! %s", c.getUsage())}
 	}
 
 	key := params[1].Val
 	typeString := "none"
-	if entry, exists := c.dataStore.Get(key); exists {
-		switch entry.(type) {
-		case resptypes.BulkString:
+	if dsVal, exists := c.Get(key); exists {
+		switch dsVal.Type {
+		case redistypes.TypeString:
 			typeString = "string"
-		case redistypes.List:
+		case redistypes.TypeList:
 			typeString = "list"
-		case redistypes.Stream:
+		case redistypes.TypeStream:
 			typeString = "stream"
-		default:
+		case redistypes.TypeUnknown:
 			typeString = "unknown"
 		}
 	}

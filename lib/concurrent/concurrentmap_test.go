@@ -2,13 +2,14 @@ package concurrent_test
 
 import (
 	"fmt"
+	"testing"
 	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/lib/concurrent"
 )
 
 // Use your actual struct and methods here
-func main() {
+func TestTimerRaceCondition(t *testing.T) {
 	m := concurrent.NewConcurrentMap[string, string]()
 	key := "race-key"
 
@@ -25,8 +26,7 @@ func main() {
 		// 4. CHECK: If the "old" timer fired and lacked the check,
 		// it might have deleted the "new" value.
 		if _, ok := m.Get(key); !ok {
-			fmt.Printf("REPRODUCED! Key was deleted by an old timer on iteration %d\n", i)
-			return
+			t.Fatalf("REPRODUCED! Key was deleted by an old timer on iteration %d", i)
 		}
 	}
 	fmt.Println("Could not reproduce. Your logic might be safe or the CPU was too fast.")

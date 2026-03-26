@@ -27,7 +27,3 @@ func (r BulkString) ToRespString() string {
 
 	return fmt.Sprintf("$%d\r\n%s\r\n", r.Length, r.Val)
 }
-
-func (r BulkString) toString() string {
-	return r.Val
-}

@@ -20,8 +20,6 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string, commandProces
 	defer close(c)
 	slog.DebugContext(ctx, "ReadWorker started")
 
-	var wg sync.WaitGroup
-	defer wg.Wait()
 	in := rediscommon.CreateScannerChannel(ctx, cancel, conn, rediscommon.ScanResp)
 	requestId := 0
 	for {
@@ -38,16 +36,14 @@ func ReadWorker(ctx context.Context, conn net.Conn, c chan string, commandProces
 				return
 			}
 
-			wg.Go(func() {
-				result := commandProcessor.ExecuteCommand(ctx, text)
-				switch result.(type) {
-				case resptypes.Null:
-					slog.DebugContext(ctx, "Null result, no response sent!")
-					return
-				}
+			result := commandProcessor.ExecuteCommand(ctx, text)
+			switch result.(type) {
+			case resptypes.Null:
+				slog.DebugContext(ctx, "Null result, no response sent!")
+				return
+			}
 
-				c <- result.ToRespString()
-			})
+			c <- result.ToRespString()
 		}
 	}
 }
@@ -75,7 +71,7 @@ func WriteWorker(ctx context.Context, conn net.Conn, in <-chan string) {
 
 			if err != nil {
 				slog.ErrorContext(ctx, "Connection lost", "error", err)
-				break
+				return
 			}
 
 			slog.DebugContext(ctx, "Response sent", "response", str)

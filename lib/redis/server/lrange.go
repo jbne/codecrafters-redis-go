@@ -11,11 +11,15 @@ import (
 
 type (
 	lrange struct {
-		*redisDataStore
+		redistypes.DataStore
 	}
 )
 
-func (c lrange) getUsage(ctx context.Context) string {
+func (c lrange) moniker() string {
+	return "LRANGE"
+}
+
+func (c lrange) getUsage() string {
 	return `
 usage:
 	lrange key start stop
@@ -35,7 +39,7 @@ summary:
 
 func (c lrange) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 4 {
-		return resptypes.SimpleError{Val: fmt.Errorf("ERR LRANGE key, start, and stop! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR LRANGE key, start, and stop! %s", c.getUsage())}
 	}
 
 	listName := params[1].Val
@@ -52,14 +56,14 @@ func (c lrange) execute(ctx context.Context, params commandParams) commandResult
 		return resptypes.SimpleError{Val: fmt.Errorf("ERR Stop index '%s' could not be converted to int! Err: %w", stopIndexStr, err)}
 	}
 
-	if entry, exists := c.dataStore.Get(listName); exists {
-		if list, ok := entry.(redistypes.List); ok {
-			bulkStrings := resptypes.Array[resptypes.BulkString](list.GetRange(startIndex, stopIndex))
-			return bulkStrings
+	if dsVal, exists := c.Get(listName); exists {
+		if dsVal.Type != redistypes.TypeList {
+			return resptypes.SimpleError{Val: fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")}
 		}
 
-		return resptypes.SimpleError{Val: fmt.Errorf("ERR LRANGE can only be called on lists! %s", c.getUsage(ctx))}
+		bulkStrings := resptypes.Array[resptypes.BulkString](dsVal.List.GetRange(startIndex, stopIndex))
+		return bulkStrings
 	}
 
-	return resptypes.Array[resptypes.BaseInterface]{}
+	return resptypes.Array[resptypes.RespSerializable]{}
 }

@@ -10,11 +10,15 @@ import (
 
 type (
 	llen struct {
-		*redisDataStore
+		redistypes.DataStore
 	}
 )
 
-func (c llen) getUsage(ctx context.Context) string {
+func (c llen) moniker() string {
+	return "LLEN"
+}
+
+func (c llen) getUsage() string {
 	return `
 usage:
 	llen key
@@ -27,17 +31,17 @@ summary:
 
 func (c llen) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 2 {
-		return resptypes.SimpleError{Val: fmt.Errorf("ERR LLEN requires key! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR LLEN requires key! %s", c.getUsage())}
 	}
 
 	listName := params[1].Val
-	entry, exists := c.dataStore.Get(listName)
+	dsVal, exists := c.Get(listName)
 	if exists {
-		if list, ok := entry.(redistypes.List); ok {
-			return resptypes.Integer{Val: int64(list.Len())}
+		if dsVal.Type != redistypes.TypeList {
+			return resptypes.SimpleError{Val: fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")}
 		}
 
-		return resptypes.SimpleError{Val: fmt.Errorf("ERR LLEN can only be called on lists! %s", c.getUsage(ctx))}
+		return resptypes.Integer{Val: int64(dsVal.List.Len())}
 	}
 
 	return resptypes.Integer{Val: 0}

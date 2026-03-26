@@ -41,7 +41,7 @@ func CreateScannerChannel(ctx context.Context, cancel context.CancelFunc, reader
 				slog.DebugContext(ctx, "Scanner cancelled by context")
 				return
 			case out <- line:
-				slog.DebugContext(ctx, "Scanner channel got something", "line", line)
+				//slog.DebugContext(ctx, "Scanner channel got something", "line", line)
 			}
 		}
 		// Check for errors after Scan() returns false

@@ -11,11 +11,15 @@ import (
 
 type (
 	lpop struct {
-		*redisDataStore
+		redistypes.DataStore
 	}
 )
 
-func (c lpop) getUsage(ctx context.Context) string {
+func (c lpop) moniker() string {
+	return "LPOP"
+}
+
+func (c lpop) getUsage() string {
 	return `
 usage:
 	lpop key [count]
@@ -47,17 +51,17 @@ func (c lpop) execute(ctx context.Context, params commandParams) commandResult {
 		return resptypes.SimpleError{Val: fmt.Errorf("ERR Count must be a positive integer!")}
 	}
 
-	if entry, exists := c.dataStore.Get(listName); exists {
-		if list, ok := entry.(redistypes.List); ok {
-			result := resptypes.Array[resptypes.BulkString](list.PopFront(count))
-			if count == 1 {
-				return result[0]
-			}
-
-			return result
+	if dsVal, exists := c.Get(listName); exists {
+		if dsVal.Type != redistypes.TypeList {
+			return resptypes.SimpleError{Val: fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")}
 		}
 
-		return resptypes.SimpleError{Val: fmt.Errorf("ERR LPOP can only be called on lists! %s", c.getUsage(ctx))}
+		result := resptypes.Array[resptypes.BulkString](dsVal.List.PopFront(count))
+		if count == 1 {
+			return result[0]
+		}
+
+		return result
 	}
 
 	return resptypes.NullBulkString

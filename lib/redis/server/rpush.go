@@ -10,11 +10,15 @@ import (
 
 type (
 	rpush struct {
-		*redisDataStore
+		redistypes.DataStore
 	}
 )
 
-func (c rpush) getUsage(ctx context.Context) string {
+func (c rpush) moniker() string {
+	return "RPUSH"
+}
+
+func (c rpush) getUsage() string {
 	return `
 usage:
 	rpush key element [element ...]
@@ -27,16 +31,16 @@ summary:
 
 func (c rpush) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) < 3 {
-		return resptypes.SimpleError{Val: fmt.Errorf("ERR RPUSH requires key and at least one element! %s", c.getUsage(ctx))}
+		return resptypes.SimpleError{Val: fmt.Errorf("ERR RPUSH requires key and at least one element! %s", c.getUsage())}
 	}
 
 	listName := params[1].Val
-	entry := c.dataStore.GetOrCreate(listName, redistypes.NewList, 0)
+	dsVal := c.GetOrCreate(listName, redistypes.NewList, 0)
 
-	if list, ok := entry.(redistypes.List); ok {
-		newLen := list.PushBack(params[2:]...)
-		return resptypes.Integer{Val: int64(newLen)}
+	if dsVal.Type != redistypes.TypeList {
+		return resptypes.SimpleError{Val: fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")}
 	}
 
-	return resptypes.SimpleError{Val: fmt.Errorf("ERR RPUSH can only be called on lists! %s", c.getUsage(ctx))}
+	newLen := dsVal.List.PushBack(params[2:]...)
+	return resptypes.Integer{Val: int64(newLen)}
 }

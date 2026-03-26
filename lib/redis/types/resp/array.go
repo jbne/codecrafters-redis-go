@@ -6,10 +6,10 @@ import (
 )
 
 type (
-	Array[T BaseInterface] []T
+	Array[T RespSerializable] []T
 )
 
-var NullArray = Array[BaseInterface](nil)
+var NullArray = Array[RespSerializable](nil)
 
 func (r Array[T]) ToRespString() string {
 	if r == nil {
@@ -23,16 +23,4 @@ func (r Array[T]) ToRespString() string {
 
 		return sb.String()
 	}
-}
-
-func (r Array[T]) toString() string {
-	var sb strings.Builder
-
-	fmt.Fprint(&sb, "[\r\n")
-	for _, e := range r {
-		fmt.Fprintf(&sb, "%s\r\n", e.toString())
-	}
-	fmt.Fprint(&sb, "]")
-
-	return sb.String()
 }

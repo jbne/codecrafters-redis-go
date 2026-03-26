@@ -13,14 +13,18 @@ import (
 
 type (
 	blpop struct {
-		*redisDataStore
+		redistypes.DataStore
 	}
 )
 
-func (c blpop) getUsage(ctx context.Context) string {
+func (c blpop) moniker() string {
+	return "BLPOP"
+}
+
+func (c blpop) getUsage() string {
 	return `
 usage:
-	blpop key [key ...] timeout
+	blpop key timeout
 summary:
 	BLPOP is a blocking list pop primitive.
 	It is the blocking version of LPOP because it blocks the connection when there are no elements to pop from any of the given lists.
@@ -53,22 +57,22 @@ func (c blpop) execute(ctx context.Context, params commandParams) commandResult 
 		defer cancel()
 	}
 
-	entry := c.dataStore.GetOrCreate(listName, redistypes.NewList, 0)
-	if list, ok := entry.(redistypes.List); ok {
-		err, result := list.PopFrontAsync(ctx)
-
-		if err != nil {
-			slog.DebugContext(ctx, "BLPOP error occurred", "listName", listName, "error", err)
-			if err == context.DeadlineExceeded {
-				return resptypes.NullArray
-			}
-
-			return resptypes.Null{}
-		}
-
-		result = append([]resptypes.BulkString{params[1]}, result...)
-		return resptypes.Array[resptypes.BulkString](result)
+	dsVal := c.GetOrCreate(listName, redistypes.NewList, 0)
+	if dsVal.Type != redistypes.TypeList {
+		return resptypes.SimpleError{Val: fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")}
 	}
 
-	return resptypes.SimpleError{Val: fmt.Errorf("ERR BLPOP can only be called on lists! %s", c.getUsage(ctx))}
+	err, result := dsVal.List.PopFrontAsync(ctx)
+
+	if err != nil {
+		slog.DebugContext(ctx, "BLPOP error occurred", "listName", listName, "error", err)
+		if err == context.DeadlineExceeded {
+			return resptypes.NullArray
+		}
+
+		return resptypes.Null{}
+	}
+
+	result = append([]resptypes.BulkString{params[1]}, result...)
+	return resptypes.Array[resptypes.BulkString](result)
 }

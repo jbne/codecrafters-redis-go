@@ -13,7 +13,11 @@ type (
 	}
 )
 
-func (c help) getUsage(ctx context.Context) string {
+func (c help) moniker() string {
+	return "HELP"
+}
+
+func (c help) getUsage() string {
 	return `
 usage:
 	HELP (<commandname> | @<category>)
@@ -28,7 +32,7 @@ summary:
 
 func (c help) execute(ctx context.Context, params commandParams) commandResult {
 	if len(params) != 2 {
-		return resptypes.SimpleString{Val: c.getUsage(ctx)}
+		return resptypes.SimpleString{Val: c.getUsage()}
 	}
 
 	commandName := params[1].Val
@@ -37,5 +41,5 @@ func (c help) execute(ctx context.Context, params commandParams) commandResult {
 		return resptypes.SimpleError{Val: fmt.Errorf("NOTSUPPORTED Command '%s' is not supported", commandName)}
 	}
 
-	return resptypes.SimpleString{Val: command.getUsage(ctx)}
+	return resptypes.SimpleString{Val: command.getUsage()}
 }

@@ -1,9 +1,6 @@
 package concurrent
 
 import (
-	"cmp"
-	"maps"
-	"slices"
 	"sync"
 	"time"
 )
@@ -15,20 +12,19 @@ type (
 		expiresAt time.Time
 	}
 
-	ConcurrentMap[K cmp.Ordered, V any] interface {
+	ConcurrentMap[K any, V any] interface {
 		Get(key K) (value V, exists bool)
 		Delete(key K)
 		GetOrCreate(key K, newFunc func() V, expiryDuration time.Duration) V
-		ForEachOrdered(f func(K, V))
 	}
 
-	concurrentMap[Key cmp.Ordered, Value any] struct {
+	concurrentMap[Key comparable, Value any] struct {
 		entries map[Key]mapEntry[Value]
 		mu      sync.RWMutex
 	}
 )
 
-func NewConcurrentMap[K cmp.Ordered, V any]() ConcurrentMap[K, V] {
+func NewConcurrentMap[K comparable, V any]() ConcurrentMap[K, V] {
 	return &concurrentMap[K, V]{
 		entries: make(map[K]mapEntry[V]),
 	}
@@ -43,7 +39,8 @@ func (m *concurrentMap[K, V]) Get(key K) (value V, exists bool) {
 	// If an expiry is set (not Zero) and we are past that time,
 	// pretend it's not there.
 	if !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt) {
-		return *new(V), false
+		var zero V
+		return zero, false
 	}
 
 	return entry.data, exists
@@ -74,7 +71,7 @@ func (m *concurrentMap[K, V]) GetOrCreate(key K, newFunc func() V, expiryDuratio
 	entry, exists := m.entries[key]
 	isExpired := !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt)
 
-	if exists && !isExpired {
+	if exists {
 		if !isExpired {
 			return entry.data
 		}
@@ -109,16 +106,4 @@ func (m *concurrentMap[K, V]) GetOrCreate(key K, newFunc func() V, expiryDuratio
 
 	m.entries[key] = newEntry
 	return newValue
-}
-
-func (m *concurrentMap[K, V]) ForEachOrdered(f func(K, V)) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	for _, key := range slices.Sorted(maps.Keys(m.entries)) {
-		entry := m.entries[key]
-		if entry.expiresAt.IsZero() || time.Now().Before(entry.expiresAt) {
-			f(key, entry.data)
-		}
-	}
 }

@@ -7,9 +7,8 @@ import (
 )
 
 type (
-	BaseInterface interface {
+	RespSerializable interface {
 		ToRespString() string
-		toString() string
 	}
 )
 
@@ -26,7 +25,7 @@ func parseErr(err error) (SimpleError, int) {
 	return SimpleError{Val: fmt.Errorf("ERRPARSE %w", err)}, 0
 }
 
-func ParseRespString(respStr string) (BaseInterface, int) {
+func ParseRespString(respStr string) (RespSerializable, int) {
 	if respStr == "" {
 		return parseErr(fmt.Errorf("Empty RESP string is not valid! Got: %v", respStr))
 	}
@@ -80,7 +79,7 @@ func ParseRespString(respStr string) (BaseInterface, int) {
 
 		size := 0
 		totalNumBytes := nextSeparatorIndex + 2
-		elements := make(Array[BaseInterface], expectedLength)
+		elements := make(Array[RespSerializable], expectedLength)
 		for size < expectedLength {
 			respStr = respStr[nextSeparatorIndex+2:]
 			nextSeparatorIndex = strings.Index(respStr, "\r\n")
@@ -109,7 +108,7 @@ func ParseRespString(respStr string) (BaseInterface, int) {
 			return parseErr(fmt.Errorf("Array length values do not match! Got: %v, expected: %v", len(elements), expectedLength))
 		}
 
-		return Array[BaseInterface](elements), totalNumBytes
+		return Array[RespSerializable](elements), totalNumBytes
 	default:
 		return parseErr(fmt.Errorf("Invalid RESP type prefix! Got: %v", respStr))
 	}

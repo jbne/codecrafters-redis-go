@@ -13,7 +13,3 @@ type (
 func (r SimpleString) ToRespString() string {
 	return fmt.Sprintf("+%s\r\n", r.Val)
 }
-
-func (r SimpleString) toString() string {
-	return r.Val
-}

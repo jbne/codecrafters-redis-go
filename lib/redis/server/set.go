@@ -6,16 +6,21 @@ import (
 	"strconv"
 	"time"
 
+	redistypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/redis"
 	resptypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/resp"
 )
 
 type (
 	set struct {
-		*redisDataStore
+		redistypes.DataStore
 	}
 )
 
-func (c set) getUsage(ctx context.Context) string {
+func (c set) moniker() string {
+	return "SET"
+}
+
+func (c set) getUsage() string {
 	return `
 usage:
 	set key value [PX milliseconds]
@@ -61,9 +66,9 @@ func (c set) execute(ctx context.Context, params commandParams) commandResult {
 			}
 		}
 
-		entry := c.dataStore.GetOrCreate(key, func() any { return tokens[2] }, time.Duration(expiryDurationMs)*time.Millisecond)
-		if _, ok := entry.(resptypes.BulkString); !ok {
-			return resptypes.SimpleError{Val: fmt.Errorf("ERR SET command can only be called on string values! %s", c.getUsage(ctx))}
+		dsVal := c.GetOrCreate(key, redistypes.NewString(value), time.Duration(expiryDurationMs)*time.Millisecond)
+		if dsVal.Type != redistypes.TypeString {
+			return resptypes.SimpleError{Val: fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")}
 		}
 
 		return resptypes.SimpleString{Val: "OK"}
