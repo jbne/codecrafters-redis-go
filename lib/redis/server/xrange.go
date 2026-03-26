@@ -3,17 +3,11 @@ package redisserverlib
 import (
 	"context"
 	"fmt"
-	"math"
-	"regexp"
 	"strconv"
 	"strings"
 
 	redistypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/redis"
 	resptypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/resp"
-)
-
-var (
-	xrangeEntryIdRegexp = regexp.MustCompile(`^\d+(-\d+)?$`)
 )
 
 type (
@@ -26,11 +20,6 @@ func (c xrange) moniker() string {
 	return "XRANGE"
 }
 
-const (
-	// This is the max possible sequence number that Redis supports.
-	maxSequenceNum = uint64(math.MaxUint64)
-)
-
 func (c xrange) getUsage() string {
 	return `
 usage:
@@ -39,7 +28,7 @@ summary:
 	The command returns the stream entries matching a given range of IDs.
 	The range is specified by a minimum and maximum ID.
 	All the entries having an ID between the two specified or exactly one of the two IDs specified (closed interval) are returned.
-` + "\r\n"
+`
 }
 
 func (c xrange) execute(ctx context.Context, params commandParams) commandResult {
@@ -48,9 +37,6 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 	}
 
 	streamKey := params[1].Val
-	startStr := params[2].Val
-	endStr := params[3].Val
-
 	dsVal, exists := c.Get(streamKey)
 	if !exists {
 		return resptypes.Array[resptypes.RespSerializable]{}
@@ -60,12 +46,13 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 		return resptypes.SimpleError{Val: fmt.Errorf("ERR XRANGE can only be called on streams! %s", c.getUsage())}
 	}
 
+	startStr := params[2].Val
 	start := redistypes.StreamEntryId{}
 	if startStr != "-" {
 		split := strings.Split(startStr, "-")
 
 		if len(split) > 2 {
-			return resptypes.SimpleError{Val: fmt.Errorf("ERR Start '%s' is not a valid stream entry ID! %s", endStr, c.getUsage())}
+			return resptypes.SimpleError{Val: fmt.Errorf("ERR Start '%s' is not a valid stream entry ID! %s", startStr, c.getUsage())}
 		}
 
 		var err error
@@ -82,10 +69,11 @@ func (c xrange) execute(ctx context.Context, params commandParams) commandResult
 		}
 	}
 
+	endStr := params[3].Val
 	end := redistypes.StreamEntryId{}
 	if endStr == "+" {
-		end.Ms = maxSequenceNum
-		end.Seq = maxSequenceNum
+		end.Ms = redistypes.MaxSequenceNum
+		end.Seq = redistypes.MaxSequenceNum
 	} else {
 		split := strings.Split(endStr, "-")
 

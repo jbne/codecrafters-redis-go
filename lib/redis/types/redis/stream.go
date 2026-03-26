@@ -2,10 +2,16 @@ package redistypes
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
 	resptypes "github.com/codecrafters-io/redis-starter-go/lib/redis/types/resp"
+)
+
+const (
+	// This is the max possible sequence number that Redis supports.
+	MaxSequenceNum = uint64(math.MaxUint64)
 )
 
 type (

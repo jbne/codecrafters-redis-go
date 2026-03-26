@@ -32,7 +32,7 @@ usage:
 summary:
 	Appends the specified stream entry to the stream at the specified key.
 	If the key does not exist, XADD will create a new key with the given stream value as a side effect of running this command.
-` + "\r\n"
+`
 }
 
 func (c xadd) execute(ctx context.Context, params commandParams) commandResult {

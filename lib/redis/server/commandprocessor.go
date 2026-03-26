@@ -65,6 +65,7 @@ func NewRedisCommandProcessor() CommandProcessor {
 	// Stream commands
 	commands.registerCommand(xadd{redisDataStore})
 	commands.registerCommand(xrange{redisDataStore})
+	commands.registerCommand(xread{redisDataStore})
 
 	// Generic commands
 	commands.registerCommand(typeCmd{redisDataStore})

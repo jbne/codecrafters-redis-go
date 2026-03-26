@@ -25,7 +25,7 @@ usage:
 summary:
 	Returns the string representation of the type of the value stored at key.
 	The different types that can be returned are: string, list, set, zset, hash, stream, and vectorset.
-` + "\r\n"
+`
 }
 
 func (c typeCmd) execute(ctx context.Context, params commandParams) commandResult {

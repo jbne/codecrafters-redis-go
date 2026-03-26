@@ -29,7 +29,7 @@ summary:
 	Set key to hold the string value.
 	If key already holds a value, it is overwritten, regardless of its type.
 	Any previous time to live associated with the key is discarded on successful SET operation.
-` + "\r\n"
+`
 }
 
 func (c set) execute(ctx context.Context, params commandParams) commandResult {
